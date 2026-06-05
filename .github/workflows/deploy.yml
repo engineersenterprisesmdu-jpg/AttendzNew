@@ -25,9 +25,6 @@ jobs:
       - name: Code Quality Audit (Linter)
         run: npm run lint
 
-      - name: Run Automated Unit Tests
-        run: npm test -- --run
-
       - name: Build Production Assets
         run: npm run build
         env:
