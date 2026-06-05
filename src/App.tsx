@@ -10,7 +10,16 @@ import {
   SEED_EMPLOYEES, SEED_ROLES, SEED_DEPARTMENTS, SEED_DESIGNATIONS, 
   SEED_LEAVE_TYPES, SEED_TASK_TYPES, SEED_HOLIDAYS 
 } from "./seedData";
-import { syncStorage } from "./firebase-service";
+import { 
+  syncStorage, 
+  initFirebaseService, 
+  getFirebaseStatus, 
+  firestoreSetDoc, 
+  firestoreDeleteDoc, 
+  handleFirestoreError, 
+  OperationType 
+} from "./firebase-service";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 
 import { DocsDashboard } from "./components/DocsDashboard";
 import { TestCenter } from "./components/TestCenter";
@@ -109,7 +118,116 @@ export default function App() {
   const [fbProjId, setFbProjId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_projid", ""));
   const [fbAppId, setFbAppId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_appid", ""));
   const [fbDbUrl, setFbDbUrl] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_dburl", ""));
-  const [fbConfigured, setFbConfigured] = useState(false);
+  const [fbConfigured, setFbConfigured] = useState(() => {
+    const apikey = localStorage.getItem("attendx_fb_apikey");
+    const projid = localStorage.getItem("attendx_fb_projid");
+    const appid = localStorage.getItem("attendx_fb_appid");
+    return !!(apikey && projid && appid);
+  });
+
+  // -------------------------------------------------------------
+  // DYNAMIC FIREBASE SERVER COUPLING
+  // -------------------------------------------------------------
+  useEffect(() => {
+    if (fbApiKey && fbProjId && fbAppId) {
+      try {
+        initFirebaseService({
+          apiKey: fbApiKey,
+          projectId: fbProjId,
+          appId: fbAppId,
+          authDomain: `${fbProjId}.firebaseapp.com`,
+          storageBucket: `${fbProjId}.appspot.com`
+        });
+        setFbConfigured(true);
+        console.log("AttendX Active Firebase coupling integrated successfully.");
+      } catch (err) {
+        console.error("Firebase dynamic coupling mismatch error:", err);
+      }
+    }
+  }, [fbApiKey, fbProjId, fbAppId]);
+
+  // Synchronize Firestore collections to local state in Realtime
+  useEffect(() => {
+    const { isConfigured, db } = getFirebaseStatus();
+    if (!isConfigured || !db) return;
+
+    const unsubscribes: (() => void)[] = [];
+
+    // Helper to setup snapshot listener safely
+    const setupListener = (collectionName: string, setState: (data: any) => void, currentLocalState: any = []) => {
+      try {
+        const q = collection(db, collectionName);
+        const unsub = onSnapshot(q, (snapshot) => {
+          const list: any[] = [];
+          snapshot.forEach((doc) => {
+            list.push({ ...doc.data() });
+          });
+          
+          // Seed rule: If Firestore database is empty (e.g. freshly created) but local state has items, sync them to cloud!
+          if (snapshot.empty && currentLocalState && currentLocalState.length > 0) {
+            console.log(`Firestore collection ${collectionName} was empty. Auto-seeding local index...`);
+            currentLocalState.forEach((item: any) => {
+              const docId = item.id || item.empId;
+              if (docId) {
+                firestoreSetDoc(collectionName, docId, item);
+              }
+            });
+          } else {
+            console.log(`Synced ${list.length} docs from ${collectionName}`);
+            setState(list);
+          }
+        }, (error) => {
+          handleFirestoreError(error, OperationType.LIST, collectionName);
+        });
+        unsubscribes.push(unsub);
+      } catch (err) {
+        console.error(`Error hooking up listener for ${collectionName}:`, err);
+      }
+    };
+
+    setupListener("employees", setEmployees, employees);
+    setupListener("roles", setRoles, roles);
+    setupListener("attendance", setAttendance, attendance);
+    setupListener("leaves", setLeaves, leaves);
+    setupListener("coffs", setCoffs, coffs);
+    setupListener("specialDuties", setSpecialDuties, specialDuties);
+    setupListener("holidays", setHolidays, holidays);
+
+    // List settings / configurations global document
+    try {
+      const settingsRef = doc(db, "settings", "global");
+      const unsubSettings = onSnapshot(settingsRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (data.adminId) setAdminId(data.adminId);
+          if (data.adminPassword) setAdminPassword(data.adminPassword);
+          if (data.departments) setDepartments(data.departments);
+          if (data.designations) setDesignations(data.designations);
+          if (data.leaveTypes) setLeaveTypes(data.leaveTypes);
+          if (data.taskTypes) setTaskTypes(data.taskTypes);
+        } else {
+          // Seed settings to cloud
+          firestoreSetDoc("settings", "global", {
+            adminId,
+            adminPassword,
+            departments,
+            designations,
+            leaveTypes,
+            taskTypes
+          });
+        }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, "settings/global");
+      });
+      unsubscribes.push(unsubSettings);
+    } catch (err) {
+      console.error("Error setting up Global Settings Listener", err);
+    }
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub());
+    };
+  }, [fbConfigured]);
 
   // -------------------------------------------------------------
   // SYNCHRONIZATION EFFECT WRAPPER
@@ -255,7 +373,7 @@ export default function App() {
     if (editEmpId) {
       setEmployees(prev => prev.map(emp => {
         if (emp.id === editEmpId) {
-          return {
+          const updated = {
             ...emp,
             firstName: fFirst,
             lastName: fLast,
@@ -278,6 +396,10 @@ export default function App() {
             panFile: fPanFile,
             panFileName: fPanFileName
           };
+          if (fbConfigured) {
+            firestoreSetDoc("employees", updated.id, updated);
+          }
+          return updated;
         }
         return emp;
       }));
@@ -321,6 +443,11 @@ export default function App() {
         status: "Active"
       };
       setRoles(prev => [...prev, standardRole]);
+
+      if (fbConfigured) {
+        firestoreSetDoc("employees", newEmp.id, newEmp);
+        firestoreSetDoc("roles", standardRole.empId, standardRole);
+      }
       alert(`Created credentials of ${fFirst}. Init Password: ${empId}. (NOTE: Set their assigned Department before they can log in.)`);
     }
     setIsEmpFormOpen(false);
@@ -348,20 +475,24 @@ export default function App() {
       alert("Specify matching Department and Designation references.");
       return;
     }
+    const updatedAssignment: RoleAssignment = {
+      empId: selRoleEmp,
+      department: selRoleDept,
+      designation: selRoleDesig,
+      status: selRoleStatus
+    };
     setRoles(prev => {
       const exists = prev.find(r => r.empId === selRoleEmp);
       if (exists) {
-        return prev.map(r => r.empId === selRoleEmp ? { ...r, department: selRoleDept, designation: selRoleDesig, status: selRoleStatus } : r);
+        return prev.map(r => r.empId === selRoleEmp ? updatedAssignment : r);
       } else {
-        const newAssignment: RoleAssignment = {
-          empId: selRoleEmp,
-          department: selRoleDept,
-          designation: selRoleDesig,
-          status: selRoleStatus
-        };
-        return [...prev, newAssignment];
+        return [...prev, updatedAssignment];
       }
     });
+
+    if (fbConfigured) {
+      firestoreSetDoc("roles", selRoleEmp, updatedAssignment);
+    }
     alert("Employee department role assignments cataloged successfully! ✅");
   };
 
@@ -370,16 +501,35 @@ export default function App() {
   // -------------------------------------------------------------
   const handleConfigureFirebase = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fbApiKey.trim() || !fbProjId.trim() || !fbAppId.trim()) {
+    const cleanApiKey = fbApiKey.trim();
+    const cleanProjId = fbProjId.trim();
+    const cleanAppId = fbAppId.trim();
+    const cleanDbUrl = fbDbUrl.trim();
+
+    if (!cleanApiKey || !cleanProjId || !cleanAppId) {
       alert("Missing credential indexes. Connecting locally.");
       return;
     }
-    syncStorage.setLocalStorage("attendx_fb_apikey", fbApiKey);
-    syncStorage.setLocalStorage("attendx_fb_projid", fbProjId);
-    syncStorage.setLocalStorage("attendx_fb_appid", fbAppId);
-    syncStorage.setLocalStorage("attendx_fb_dburl", fbDbUrl);
-    setFbConfigured(true);
-    alert("Firebase Connection Synced. Active Cloud Run parameters live! ✅");
+
+    syncStorage.setLocalStorage("attendx_fb_apikey", cleanApiKey);
+    syncStorage.setLocalStorage("attendx_fb_projid", cleanProjId);
+    syncStorage.setLocalStorage("attendx_fb_appid", cleanAppId);
+    syncStorage.setLocalStorage("attendx_fb_dburl", cleanDbUrl);
+
+    try {
+      initFirebaseService({
+        apiKey: cleanApiKey,
+        projectId: cleanProjId,
+        appId: cleanAppId,
+        authDomain: `${cleanProjId}.firebaseapp.com`,
+        storageBucket: `${cleanProjId}.appspot.com`
+      });
+      setFbConfigured(true);
+      alert("Firebase Connection Synced. Active Cloud Run parameters live! ✅");
+    } catch (err) {
+      console.error("Firebase startup synchronization mismatch:", err);
+      alert("Failed to couple connection with specified credentials. Check your config inputs.");
+    }
   };
 
   const handleWipeDatabase = () => {
@@ -414,14 +564,43 @@ export default function App() {
   // APPROVALS FLOW CONTROLS
   // -------------------------------------------------------------
   const handleApproveItem = (type: string, id: string) => {
+    const approvedBy = user?.firstName || "Admin";
     if (type === "attendance") {
-      setAttendance(prev => prev.map(a => a.id === id ? { ...a, approval: "Approved", approvedBy: user?.firstName || "Admin" } : a));
+      setAttendance(prev => prev.map(a => {
+        if (a.id === id) {
+          const updated = { ...a, approval: "Approved", approvedBy };
+          if (fbConfigured) firestoreSetDoc("attendance", id, updated);
+          return updated;
+        }
+        return a;
+      }));
     } else if (type === "leave") {
-      setLeaves(prev => prev.map(l => l.id === id ? { ...l, status: "Approved", approvedBy: user?.firstName || "Admin" } : l));
+      setLeaves(prev => prev.map(l => {
+        if (l.id === id) {
+          const updated = { ...l, status: "Approved", approvedBy };
+          if (fbConfigured) firestoreSetDoc("leaves", id, updated);
+          return updated;
+        }
+        return l;
+      }));
     } else if (type === "coff") {
-      setCoffs(prev => prev.map(c => c.id === id ? { ...c, status: "Approved", approvedBy: user?.firstName || "Admin" } : c));
+      setCoffs(prev => prev.map(c => {
+        if (c.id === id) {
+          const updated = { ...c, status: "Approved", approvedBy };
+          if (fbConfigured) firestoreSetDoc("coffs", id, updated);
+          return updated;
+        }
+        return c;
+      }));
     } else if (type === "sd") {
-      setSpecialDuties(prev => prev.map(s => s.id === id ? { ...s, status: "Approved", approvedBy: user?.firstName || "Admin" } : s));
+      setSpecialDuties(prev => prev.map(s => {
+        if (s.id === id) {
+          const updated = { ...s, status: "Approved", approvedBy };
+          if (fbConfigured) firestoreSetDoc("specialDuties", id, updated);
+          return updated;
+        }
+        return s;
+      }));
     }
     alert("Requested Item approved successfully! ✅");
   };
@@ -437,13 +616,41 @@ export default function App() {
     const statusVal = requireResubmit ? "Rejected-Resubmit" : "Rejected";
 
     if (type === "attendance") {
-      setAttendance(prev => prev.map(a => a.id === id ? { ...a, approval: statusVal, rejectReason: rejectReasonPrompt } : a));
+      setAttendance(prev => prev.map(a => {
+        if (a.id === id) {
+          const updated = { ...a, approval: statusVal, rejectReason: rejectReasonPrompt };
+          if (fbConfigured) firestoreSetDoc("attendance", id, updated);
+          return updated;
+        }
+        return a;
+      }));
     } else if (type === "leave") {
-      setLeaves(prev => prev.map(l => l.id === id ? { ...l, status: statusVal, rejectReason: rejectReasonPrompt } : l));
+      setLeaves(prev => prev.map(l => {
+        if (l.id === id) {
+          const updated = { ...l, status: statusVal, rejectReason: rejectReasonPrompt };
+          if (fbConfigured) firestoreSetDoc("leaves", id, updated);
+          return updated;
+        }
+        return l;
+      }));
     } else if (type === "coff") {
-      setCoffs(prev => prev.map(c => c.id === id ? { ...c, status: statusVal, rejectReason: rejectReasonPrompt } : c));
+      setCoffs(prev => prev.map(c => {
+        if (c.id === id) {
+          const updated = { ...c, status: statusVal, rejectReason: rejectReasonPrompt };
+          if (fbConfigured) firestoreSetDoc("coffs", id, updated);
+          return updated;
+        }
+        return c;
+      }));
     } else if (type === "sd") {
-      setSpecialDuties(prev => prev.map(s => s.id === id ? { ...s, status: statusVal, rejectReason: rejectReasonPrompt } : s));
+      setSpecialDuties(prev => prev.map(s => {
+        if (s.id === id) {
+          const updated = { ...s, status: statusVal, rejectReason: rejectReasonPrompt };
+          if (fbConfigured) firestoreSetDoc("specialDuties", id, updated);
+          return updated;
+        }
+        return s;
+      }));
     }
 
     setActiveRejectTarget(null);
@@ -461,6 +668,9 @@ export default function App() {
       }
       return [...prev, rec];
     });
+    if (fbConfigured) {
+      firestoreSetDoc("attendance", rec.id, rec);
+    }
   };
   const handleEmployeeSubmitLeave = (rec: Leave) => {
     setLeaves(prev => {
@@ -470,6 +680,9 @@ export default function App() {
       }
       return [...prev, rec];
     });
+    if (fbConfigured) {
+      firestoreSetDoc("leaves", rec.id, rec);
+    }
   };
   const handleEmployeeSubmitCoff = (rec: Coff) => {
     setCoffs(prev => {
@@ -479,6 +692,9 @@ export default function App() {
       }
       return [...prev, rec];
     });
+    if (fbConfigured) {
+      firestoreSetDoc("coffs", rec.id, rec);
+    }
   };
   const handleEmployeeSubmitSD = (rec: SpecialDuty) => {
     setSpecialDuties(prev => {
@@ -488,6 +704,9 @@ export default function App() {
       }
       return [...prev, rec];
     });
+    if (fbConfigured) {
+      firestoreSetDoc("specialDuties", rec.id, rec);
+    }
   };
 
   const handleDeleteRecord = (type: "attendance" | "leave" | "coff" | "sd", id: string) => {
@@ -499,6 +718,11 @@ export default function App() {
       setCoffs(prev => prev.filter(x => x.id !== id));
     } else if (type === "sd") {
       setSpecialDuties(prev => prev.filter(x => x.id !== id));
+    }
+
+    if (fbConfigured) {
+      const collName = type === "attendance" ? "attendance" : type === "leave" ? "leaves" : type === "coff" ? "coffs" : "specialDuties";
+      firestoreDeleteDoc(collName, id);
     }
   };
 
@@ -1004,10 +1228,14 @@ export default function App() {
                               >
                                 <Edit3 className="w-4 h-4" />
                               </button>
-                              <button
+                               <button
                                 onClick={() => {
                                   if (confirm(`Are you sure you want to delete ${e.firstName}?`)) {
                                     setEmployees(prev => prev.filter(emp => emp.id !== e.id));
+                                    if (fbConfigured) {
+                                      firestoreDeleteDoc("employees", e.id);
+                                      firestoreDeleteDoc("roles", e.id);
+                                    }
                                   }
                                 }}
                                 className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
@@ -1150,7 +1378,18 @@ export default function App() {
                     <input type="text" placeholder="New dept..." value={newDept} onChange={e => setNewDept(e.target.value)} className="text-xs px-3 py-2 border rounded-lg flex-1 focus:outline-none" />
                     <button onClick={() => {
                       if (!newDept.trim()) return;
-                      setDepartments(prev => [...prev, newDept.trim()]);
+                      const updated = [...departments, newDept.trim()];
+                      setDepartments(updated);
+                      if (fbConfigured) {
+                        firestoreSetDoc("settings", "global", {
+                          adminId,
+                          adminPassword,
+                          departments: updated,
+                          designations,
+                          leaveTypes,
+                          taskTypes
+                        });
+                      }
                       setNewDept("");
                     }} className="px-3 py-2 bg-indigo-600 text-white font-bold text-xs rounded-lg uppercase cursor-pointer">Add</button>
                   </div>
@@ -1172,7 +1411,18 @@ export default function App() {
                     <input type="text" placeholder="New desig..." value={newDesig} onChange={e => setNewDesig(e.target.value)} className="text-xs px-3 py-2 border rounded-lg flex-1 focus:outline-none" />
                     <button onClick={() => {
                       if (!newDesig.trim()) return;
-                      setDesignations(prev => [...prev, newDesig.trim()]);
+                      const updated = [...designations, newDesig.trim()];
+                      setDesignations(updated);
+                      if (fbConfigured) {
+                        firestoreSetDoc("settings", "global", {
+                          adminId,
+                          adminPassword,
+                          departments,
+                          designations: updated,
+                          leaveTypes,
+                          taskTypes
+                        });
+                      }
                       setNewDesig("");
                     }} className="px-3 py-2 bg-indigo-600 text-white font-bold text-xs rounded-lg uppercase cursor-pointer">Add</button>
                   </div>
@@ -1443,6 +1693,9 @@ export default function App() {
                           type: newHolType
                         };
                         setHolidays(prev => [...prev, nHol]);
+                        if (fbConfigured) {
+                          firestoreSetDoc("holidays", nHol.id, nHol);
+                        }
                         setNewHolDate("");
                         setNewHolName("");
                         setNewHolType("National");
@@ -1468,6 +1721,9 @@ export default function App() {
                           onClick={() => {
                             if (confirm(`Remove holiday ${h.name}?`)) {
                               setHolidays(prev => prev.filter(x => x.id !== h.id));
+                              if (fbConfigured) {
+                                firestoreDeleteDoc("holidays", h.id);
+                              }
                             }
                           }}
                           className="p-1 px-2.5 text-xs text-rose-600 hover:bg-rose-50 border border-rose-300 rounded font-bold"
@@ -1503,6 +1759,18 @@ export default function App() {
                     <Database className="w-5 h-5 text-indigo-600" />
                     Configure Database parameters
                   </h3>
+
+                  {fbConfigured ? (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2.5 text-xs text-emerald-800 font-bold font-sans">
+                      <span className="w-2 bg-emerald-500 h-2 rounded-full animate-pulse flex-shrink-0"></span>
+                      <span>☁️ CLOUD FIRESTORE SYNC ACTIVE</span>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2.5 text-xs text-amber-800 font-medium font-sans">
+                      <span className="w-2 bg-amber-400 h-2 rounded-full flex-shrink-0"></span>
+                      <span>💡 Offline Sandbox Mode (Local Cache Only)</span>
+                    </div>
+                  )}
 
                   <form onSubmit={handleConfigureFirebase} className="space-y-4">
                     <div>

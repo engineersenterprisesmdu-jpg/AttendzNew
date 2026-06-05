@@ -107,6 +107,28 @@ export function getFirebaseStatus() {
   };
 }
 
+export async function firestoreSetDoc(collectionPath: string, docId: string, data: any) {
+  if (!db) return;
+  const fullPath = `${collectionPath}/${docId}`;
+  try {
+    const docRef = doc(db, collectionPath, docId);
+    await setDoc(docRef, data);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, fullPath);
+  }
+}
+
+export async function firestoreDeleteDoc(collectionPath: string, docId: string) {
+  if (!db) return;
+  const fullPath = `${collectionPath}/${docId}`;
+  try {
+    const docRef = doc(db, collectionPath, docId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, fullPath);
+  }
+}
+
 // Low-cost / free local sync fallback logic of AttendX
 export const syncStorage = {
   getLocalStorage: <T>(key: string, defaultVal: T): T => {
