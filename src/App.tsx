@@ -20,6 +20,7 @@ import {
   OperationType 
 } from "./firebase-service";
 import { collection, doc, onSnapshot } from "firebase/firestore";
+import { HARDCODED_FIREBASE_CONFIG } from "./firebase-config";
 
 import { DocsDashboard } from "./components/DocsDashboard";
 import { TestCenter } from "./components/TestCenter";
@@ -114,14 +115,14 @@ export default function App() {
   const [activeRejectTarget, setActiveRejectTarget] = useState<{ type: string; id: string; requireResubmit: boolean } | null>(null);
 
   // Live Firebase connection setup variables
-  const [fbApiKey, setFbApiKey] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_apikey", ""));
-  const [fbProjId, setFbProjId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_projid", ""));
-  const [fbAppId, setFbAppId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_appid", ""));
-  const [fbDbUrl, setFbDbUrl] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_dburl", ""));
+  const [fbApiKey, setFbApiKey] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_apikey", HARDCODED_FIREBASE_CONFIG.apiKey));
+  const [fbProjId, setFbProjId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_projid", HARDCODED_FIREBASE_CONFIG.projectId));
+  const [fbAppId, setFbAppId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_appid", HARDCODED_FIREBASE_CONFIG.appId));
+  const [fbDbUrl, setFbDbUrl] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_dburl", HARDCODED_FIREBASE_CONFIG.databaseURL));
   const [fbConfigured, setFbConfigured] = useState(() => {
-    const apikey = localStorage.getItem("attendx_fb_apikey");
-    const projid = localStorage.getItem("attendx_fb_projid");
-    const appid = localStorage.getItem("attendx_fb_appid");
+    const apikey = localStorage.getItem("attendx_fb_apikey") || HARDCODED_FIREBASE_CONFIG.apiKey;
+    const projid = localStorage.getItem("attendx_fb_projid") || HARDCODED_FIREBASE_CONFIG.projectId;
+    const appid = localStorage.getItem("attendx_fb_appid") || HARDCODED_FIREBASE_CONFIG.appId;
     return !!(apikey && projid && appid);
   });
 
@@ -1799,30 +1800,63 @@ export default function App() {
                   </form>
                 </div>
 
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-                  <h3 className="text-sm font-bold text-rose-500 flex items-center gap-2 border-b border-rose-100 pb-2">
-                    <Trash2 className="w-5 h-5 text-rose-500" />
-                    Reset system caches
-                  </h3>
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2 font-display">
+                      <Radio className="w-5 h-5 text-indigo-600" />
+                      Firebase Cloud Integration Guide
+                    </h3>
+                    <div className="mt-3.5 bg-indigo-50/60 border border-indigo-150 rounded-xl p-3.5 text-xs text-indigo-950 font-sans leading-relaxed space-y-2.5">
+                      <div>
+                        <span className="font-bold block text-indigo-800">1. Cloud Firestore vs Realtime DB:</span>
+                        This system synchronizes using <b className="text-indigo-950 font-bold">Cloud Firestore</b>, a premium document-based storage. Do not check the "Realtime Database" tab in the Firebase Console (it will show no nodes). Look under <b className="text-indigo-700 font-bold uppercase font-mono">Firestore Database</b> to see your live collections!
+                      </div>
+                      <div className="border-t border-indigo-150 pt-2">
+                        <span className="font-bold block text-indigo-800">2. Define Firestore Rules:</span>
+                        Go to your <b className="text-indigo-950">Firebase console &gt; Firestore Database &gt; Rules</b> and publish this block to permit reads and writes:
+                        <pre className="mt-1.5 p-2 bg-slate-900 text-slate-100 text-[10px] font-mono rounded overflow-x-auto select-all leading-normal">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+                        </pre>
+                      </div>
+                      <div className="border-t border-indigo-150 pt-2">
+                        <span className="font-bold block text-indigo-800">3. Activate Permanent Multi-Browser Sync:</span>
+                        To secure connections across all employee browsers and phone devices instantly without having to re-type keys: copy your credentials directly into the project's source file <code className="bg-white border border-indigo-200 px-1 py-0.5 rounded font-mono font-bold text-indigo-700">src/firebase-config.ts</code>!
+                      </div>
+                    </div>
+                  </div>
 
-                  <div className="space-y-4">
-                    <p className="text-xs text-slate-500 leading-normal font-sans">
-                      Wipe database configurations, cookies, and local index entries. Use these buttons to clean state before committing production deployments.
-                    </p>
+                  <div className="border-t border-slate-100 pt-4">
+                    <h3 className="text-xs font-bold text-rose-500 flex items-center gap-2 pb-2 font-display">
+                      <Trash2 className="w-4 h-4 text-rose-500" />
+                      Reset system caches
+                    </h3>
 
-                    <div className="flex flex-col gap-2">
-                      <button
-                        onClick={handleWipePunchesOnly}
-                        className="py-2.5 bg-slate-100 border border-slate-250 hover:bg-slate-200 text-slate-700 font-semibold text-xs uppercase rounded-lg"
-                      >
-                        Reset Operations punches only
-                      </button>
-                      <button
-                        onClick={handleWipeDatabase}
-                        className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase rounded-lg"
-                      >
-                        Wipe entire database properties
-                      </button>
+                    <div className="space-y-3 mt-1">
+                      <p className="text-[11px] text-slate-500 leading-normal font-sans">
+                        Wipe local storage configurations, keys, and session parameters.
+                      </p>
+
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={handleWipePunchesOnly}
+                          className="py-2.5 bg-slate-100 border border-slate-250 hover:bg-slate-200 text-slate-700 font-semibold text-xs uppercase rounded-lg cursor-pointer border-none"
+                        >
+                          Reset Operations punches only
+                        </button>
+                        <button
+                          onClick={handleWipeDatabase}
+                          className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase rounded-lg cursor-pointer border-none"
+                        >
+                          Wipe entire database properties
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
