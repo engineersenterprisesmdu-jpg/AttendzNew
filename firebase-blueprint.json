@@ -1,0 +1,181 @@
+{
+  "entities": {
+    "employee": {
+      "title": "Employee",
+      "description": "Information about a registered employee, including credentials, documents, and contacts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique auto-generated internal ID" },
+        "empId": { "type": "string", "description": "Formated Employee ID e.g. EMP001" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "gender": { "type": "string" },
+        "maritalStatus": { "type": "string" },
+        "dob": { "type": "string" },
+        "email": { "type": "string" },
+        "workContact": { "type": "string" },
+        "personalContact": { "type": "string" },
+        "permAddress": { "type": "string" },
+        "commAddress": { "type": "string" },
+        "doj": { "type": "string" },
+        "hireSource": { "type": "string" },
+        "empType": { "type": "string" },
+        "userRole": { "type": "string", "enum": ["Employee", "Admin", "Other"] },
+        "mappedAdmin": { "type": "string" },
+        "password": { "type": "string" },
+        "aadhaar": { "type": "string" },
+        "pan": { "type": "string" },
+        "aadhaarFileName": { "type": "string" },
+        "aadhaarFile": { "type": "string", "description": "Base64 payload or URL of document" },
+        "panFileName": { "type": "string" },
+        "panFile": { "type": "string", "description": "Base64 payload or URL of document" }
+      },
+      "required": ["id", "empId", "firstName", "lastName", "email", "doj"]
+    },
+    "roleAssignment": {
+      "title": "Role Assignment",
+      "description": "Mapping of an employee to their department and designation.",
+      "type": "object",
+      "properties": {
+        "empId": { "type": "string" },
+        "department": { "type": "string" },
+        "designation": { "type": "string" },
+        "dojDept": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Left", "Inactive", "Others"] }
+      },
+      "required": ["empId", "department", "designation", "status"]
+    },
+    "attendance": {
+      "title": "Attendance Record",
+      "description": "Recorded work session containing punches, GPS, tasks, and approval flags.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "empId": { "type": "string" },
+        "empName": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "punchOutDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["Present", "Leave", "C-Off", "Special Duty", "Absent"] },
+        "punchInTime": { "type": "string" },
+        "punchOutTime": { "type": "string" },
+        "taskId": { "type": "string" },
+        "taskType": { "type": "string" },
+        "description": { "type": "string" },
+        "endNotes": { "type": "string" },
+        "approval": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Rejected-Resubmit"] },
+        "rejectReason": { "type": "string" },
+        "gpsIn": { "type": "object" },
+        "gpsOut": { "type": "object" },
+        "approvedBy": { "type": "string" },
+        "approvedAt": { "type": "string" }
+      },
+      "required": ["id", "empId", "date", "status", "approval"]
+    },
+    "leave": {
+      "title": "Leave Application",
+      "description": "Leave requests submitted by employees.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "empId": { "type": "string" },
+        "leaveType": { "type": "string" },
+        "from": { "type": "string", "format": "date" },
+        "to": { "type": "string", "format": "date" },
+        "days": { "type": "integer" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Rejected-Resubmit"] },
+        "rejectReason": { "type": "string" },
+        "approvedBy": { "type": "string" }
+      },
+      "required": ["id", "empId", "leaveType", "from", "to", "days", "reason", "status"]
+    },
+    "coff": {
+      "title": "Compensatory Off Request",
+      "description": "Compensatory Off request for extra days worked.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "empId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Rejected-Resubmit"] },
+        "rejectReason": { "type": "string" },
+        "approvedBy": { "type": "string" }
+      },
+      "required": ["id", "empId", "date", "reason", "status"]
+    },
+    "specialDuty": {
+      "title": "Special Duty Request",
+      "description": "Request for permission to work on Sundays/Holidays.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "empId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "reason": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Rejected-Resubmit"] },
+        "rejectReason": { "type": "string" },
+        "approvedBy": { "type": "string" }
+      },
+      "required": ["id", "empId", "date", "reason", "status"]
+    },
+    "holiday": {
+      "title": "Holiday",
+      "description": "Public or corporate holiday item.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["National", "State", "Optional", "Custom"] }
+      },
+      "required": ["id", "date", "name", "type"]
+    },
+    "setting": {
+      "title": "Global System Settings",
+      "description": "System settings and credential flags for administrator management.",
+      "type": "object",
+      "properties": {
+        "adminId": { "type": "string" },
+        "adminPassword": { "type": "string" }
+      },
+      "required": ["adminId", "adminPassword"]
+    }
+  },
+  "firestore": {
+    "/employees/{employeeId}": {
+      "schema": "employee",
+      "description": "Collection of employee profiles."
+    },
+    "/roles/{employeeId}": {
+      "schema": "roleAssignment",
+      "description": "Current active roles and departments."
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "attendance",
+      "description": "Daily attendance logs."
+    },
+    "/leaves/{leaveId}": {
+      "schema": "leave",
+      "description": "Leave requests."
+    },
+    "/coffs/{coffId}": {
+      "schema": "coff",
+      "description": "Compensatory Off applications."
+    },
+    "/specialDuties/{spId}": {
+      "schema": "specialDuty",
+      "description": "Holiday and Sunday work applications."
+    },
+    "/holidays/{holidayId}": {
+      "schema": "holiday",
+      "description": "Public and company holidays."
+    },
+    "/settings/global": {
+      "schema": "setting",
+      "description": "Global settings document."
+    }
+  }
+}

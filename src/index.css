@@ -1,0 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, blinkmacsystemfont, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, sfmono-regular, fira code, monospace;
+
+  /* Map standard slate values to Geometric Balance dark slate color schema */
+  --color-slate-50: #0F172A;
+  --color-slate-100: #1E293B;
+  --color-slate-150: #1E293B;
+  --color-slate-200: #334155;
+  --color-slate-205: #334155;
+  --color-slate-250: #334155;
+  --color-slate-300: #475569;
+  --color-slate-400: #94A3B8;
+  --color-slate-500: #64748B;
+  --color-slate-600: #94A3B8;
+  --color-slate-700: #E2E8F0;
+  --color-slate-800: #E2E8F0;
+  --color-slate-850: #334155;
+  --color-slate-900: #1E293B;
+  
+  --color-white: #1E293B;
+  
+  --color-indigo-50: #0F172A;
+  --color-indigo-100: #334155;
+  --color-indigo-600: #6366F1;
+  --color-indigo-700: #818CF8;
+  --color-indigo-900: #1E1B4B;
+
+  --color-emerald-50: rgba(16, 185, 129, 0.1);
+  --color-emerald-100: rgba(16, 185, 129, 0.2);
+  --color-emerald-700: #10B981;
+  --color-emerald-800: #34D399;
+
+  --color-rose-50: rgba(244, 63, 94, 0.1);
+  --color-rose-100: rgba(244, 63, 94, 0.2);
+  --color-rose-700: #F43F5E;
+  --color-rose-800: #FB7185;
+
+  --color-purple-50: rgba(139, 92, 246, 0.1);
+  --color-purple-100: rgba(139, 92, 246, 0.2);
+  --color-purple-150: rgba(139, 92, 246, 0.25);
+  --color-purple-300: #8B5CF6;
+  --color-purple-700: #A78BFA;
+}
+
+/* Custom Scrollbar styles */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.15);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.3);
+}
+
+/* -------------------------------------------------------------
+ * GEOMETRIC BALANCE GLOBAL RESTE & STYLING OVERRIDES
+ * ------------------------------------------------------------- */
+body {
+  background-color: #0F172A !important;
+  color: #E2E8F0 !important;
+  font-family: "Inter", sans-serif;
+  height: 100%;
+}
+
+/* Card overrides to maintain depth structure */
+.bg-white, .bg-card, [class*="bg-white"] {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+  color: #E2E8F0 !important;
+}
+
+/* Input, select, texture items customization */
+input, select, textarea {
+  background-color: #0F172A !important;
+  color: #F8FAFC !important;
+  border: 1px solid #334155 !important;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: #6366F1 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) !important;
+  outline: none !important;
+}
+
+/* Option tags inside select menus on dark mode */
+select option {
+  background-color: #0F172A !important;
+  color: #E2E8F0 !important;
+}
+
+/* Buttons visual polish */
+button {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Table element layout normalization */
+table {
+  background-color: #1E293B !important;
+  border-color: #334155 !important;
+}
+
+thead, tr, th {
+  background-color: #0F172A !important;
+  color: #94A3B8 !important;
+  border-color: #334155 !important;
+}
+
+td {
+  border-color: #334155 !important;
+  color: #E2E8F0 !important;
+}
+
+tbody tr:hover {
+  background-color: rgba(51, 65, 85, 0.35) !important;
+}
+
+/* Form, labels, text styling fixes */
+label {
+  color: #94A3B8 !important;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+p, span, div, h1, h2, h3, h4, h5, h6 {
+  border-color: #334155;
+}
+
+/* Specific text color fixes for dark background visibility */
+.text-slate-800, .text-slate-700, .text-slate-600, .text-slate-900 {
+  color: #E2E8F0 !important;
+}
+
+.text-slate-500, .text-slate-450, .text-slate-400 {
+  color: #94A3B8 !important;
+}
+
+/* Badge and calendar indicators */
+.bg-purple-150, .border-purple-300, .text-purple-700 {
+  background-color: rgba(139, 92, 246, 0.15) !important;
+  border-color: rgba(139, 92, 246, 0.3) !important;
+  color: #C084FC !important;
+}
+
+.bg-rose-100, .border-rose-300, .text-rose-700 {
+  background-color: rgba(244, 63, 94, 0.15) !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+  color: #FB7185 !important;
+}
+
+.bg-emerald-100, .border-emerald-300, .text-emerald-800 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  color: #34D399 !important;
+}
+
+.bg-blue-100, .border-blue-300, .text-blue-800 {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+  color: #60A5FA !important;
+}
+
+/* Sidebar lists or selection buttons active/inactive overrides */
+.hover\:bg-slate-50:hover, .hover\:bg-slate-100:hover {
+  background-color: rgba(51, 65, 85, 0.45) !important;
+}
+
+/* Shadow enhancements */
+.shadow-xl, .shadow-2xl {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+}
+
+.shadow-md {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Animations and tweaks */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+}
+
+/* Print Layout overrides to make reporting templates beautiful in audits */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

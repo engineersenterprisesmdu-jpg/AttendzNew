@@ -1,0 +1,1626 @@
+import React, { useState, useEffect } from "react";
+import { 
+  Building, Users, ClipboardCheck, Calendar, FileSpreadsheet, Database, 
+  Settings, BookOpen, Key, Trash2, Edit3, Plus, Search, FolderPlus, 
+  LogOut, ShieldAlert, BadgeInfo, Code, Radio, RefreshCw
+} from "lucide-react";
+
+import { Employee, RoleAssignment, Attendance, Leave, Coff, SpecialDuty, Holiday } from "./types";
+import { 
+  SEED_EMPLOYEES, SEED_ROLES, SEED_DEPARTMENTS, SEED_DESIGNATIONS, 
+  SEED_LEAVE_TYPES, SEED_TASK_TYPES, SEED_HOLIDAYS 
+} from "./seedData";
+import { syncStorage } from "./firebase-service";
+
+import { DocsDashboard } from "./components/DocsDashboard";
+import { TestCenter } from "./components/TestCenter";
+import { AdminReports } from "./components/AdminReports";
+import { EmployeeDashboard } from "./components/EmployeeDashboard";
+
+export default function App() {
+  // -------------------------------------------------------------
+  // STATE DEFINITIONS
+  // -------------------------------------------------------------
+  const [user, setUser] = useState<Employee | null>(() => syncStorage.getLocalStorage<Employee | null>("attendx_active_user", null));
+  
+  // Storage states populated with seed data on first load
+  const [employees, setEmployees] = useState<Employee[]>(() => syncStorage.getLocalStorage<Employee[]>("attendx_employees", SEED_EMPLOYEES));
+  const [roles, setRoles] = useState<RoleAssignment[]>(() => syncStorage.getLocalStorage<RoleAssignment[]>("attendx_roles", SEED_ROLES));
+  const [departments, setDepartments] = useState<string[]>(() => syncStorage.getLocalStorage<string[]>("attendx_departments", SEED_DEPARTMENTS));
+  const [designations, setDesignations] = useState<string[]>(() => syncStorage.getLocalStorage<string[]>("attendx_designations", SEED_DESIGNATIONS));
+  const [leaveTypes, setLeaveTypes] = useState<string[]>(() => syncStorage.getLocalStorage<string[]>("attendx_leave_types", SEED_LEAVE_TYPES));
+  const [taskTypes, setTaskTypes] = useState<string[]>(() => syncStorage.getLocalStorage<string[]>("attendx_task_types", SEED_TASK_TYPES));
+  const [attendance, setAttendance] = useState<Attendance[]>(() => syncStorage.getLocalStorage<Attendance[]>("attendx_attendance", []));
+  const [leaves, setLeaves] = useState<Leave[]>(() => syncStorage.getLocalStorage<Leave[]>("attendx_leaves", []));
+  const [coffs, setCoffs] = useState<Coff[]>(() => syncStorage.getLocalStorage<Coff[]>("attendx_coffs", []));
+  const [specialDuties, setSpecialDuties] = useState<SpecialDuty[]>(() => syncStorage.getLocalStorage<SpecialDuty[]>("attendx_special_duties", []));
+  const [holidays, setHolidays] = useState<Holiday[]>(() => syncStorage.getLocalStorage<Holiday[]>("attendx_holidays", SEED_HOLIDAYS));
+
+  // Admin global credentials
+  const [adminId, setAdminId] = useState(() => syncStorage.getLocalStorage<string>("attendx_admin_id", "ADMIN"));
+  const [adminPassword, setAdminPassword] = useState(() => syncStorage.getLocalStorage<string>("attendx_admin_pwd", "Admin@123"));
+
+  // Helper matching employee names in database
+  const getEmpName = (id: string) => {
+    const e = employees.find(x => x.id === id);
+    return e ? `${e.firstName} ${e.lastName}` : "Unknown";
+  };
+
+  // UI routes
+  const [loginTab, setLoginTab] = useState<"admin" | "employee">("admin");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPwd, setLoginPwd] = useState("");
+  const [isPwdVisible, setIsPwdVisible] = useState(false);
+
+  // Admin portal tab
+  const [adminTab, setAdminTab] = useState("dashboard"); // dashboard, employees, assignments, masterdata, approvals, holidays, reports, tests, documentation, database
+  const [showAllMobileTools, setShowAllMobileTools] = useState(false);
+
+  // Employee Form variables
+  const [isEmpFormOpen, setIsEmpFormOpen] = useState(false);
+  const [editEmpId, setEditEmpId] = useState<string | null>(null);
+
+  const [fFirst, setFFirst] = useState("");
+  const [fLast, setFLast] = useState("");
+  const [fFather, setFFather] = useState("");
+  const [fGender, setFGender] = useState("");
+  const [fMarital, setFMarital] = useState("");
+  const [fDob, setFDob] = useState("");
+  const [fEmail, setFEmail] = useState("");
+  const [fWorkCon, setFWorkCon] = useState("");
+  const [fPersCon, setFPersCon] = useState("");
+  const [fPermAddr, setFPermAddr] = useState("");
+  const [fCommAddr, setFCommAddr] = useState("");
+  const [fDoj, setFDoj] = useState("");
+  const [fSource, setFSource] = useState("");
+  const [fType, setFType] = useState("");
+  const [fAadhaar, setFAadhaar] = useState("");
+  const [fPan, setFPan] = useState("");
+  const [fAadhaarFile, setFAadhaarFile] = useState<string | null>(null);
+  const [fAadhaarFileName, setFAadhaarFileName] = useState("");
+  const [fPanFile, setFPanFile] = useState<string | null>(null);
+  const [fPanFileName, setFPanFileName] = useState("");
+
+  const [searchEmp, setSearchEmp] = useState("");
+
+  // Role Assignment State
+  const [selRoleEmp, setSelRoleEmp] = useState("");
+  const [selRoleDept, setSelRoleDept] = useState("");
+  const [selRoleDesig, setSelRoleDesig] = useState("");
+  const [selRoleStatus, setSelRoleStatus] = useState<"Active" | "Left" | "Inactive" | "Others">("Active");
+
+  // Master Lists Entry variables
+  const [newDept, setNewDept] = useState("");
+  const [newDesig, setNewDesig] = useState("");
+  const [newLeaveType, setNewLeaveType] = useState("");
+  const [newTaskType, setNewTaskType] = useState("");
+
+  // Holiday entry Form variables
+  const [newHolDate, setNewHolDate] = useState("");
+  const [newHolName, setNewHolName] = useState("");
+  const [newHolType, setNewHolType] = useState<"National" | "State" | "Optional" | "Custom">("National");
+
+  // Rejection Reason Prompt variable
+  const [rejectReasonPrompt, setRejectReasonPrompt] = useState("");
+  const [activeRejectTarget, setActiveRejectTarget] = useState<{ type: string; id: string; requireResubmit: boolean } | null>(null);
+
+  // Live Firebase connection setup variables
+  const [fbApiKey, setFbApiKey] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_apikey", ""));
+  const [fbProjId, setFbProjId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_projid", ""));
+  const [fbAppId, setFbAppId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_appid", ""));
+  const [fbDbUrl, setFbDbUrl] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_dburl", ""));
+  const [fbConfigured, setFbConfigured] = useState(false);
+
+  // -------------------------------------------------------------
+  // SYNCHRONIZATION EFFECT WRAPPER
+  // -------------------------------------------------------------
+  useEffect(() => {
+    syncStorage.setLocalStorage("attendx_active_user", user);
+    syncStorage.setLocalStorage("attendx_employees", employees);
+    syncStorage.setLocalStorage("attendx_roles", roles);
+    syncStorage.setLocalStorage("attendx_departments", departments);
+    syncStorage.setLocalStorage("attendx_designations", designations);
+    syncStorage.setLocalStorage("attendx_leave_types", leaveTypes);
+    syncStorage.setLocalStorage("attendx_task_types", taskTypes);
+    syncStorage.setLocalStorage("attendx_attendance", attendance);
+    syncStorage.setLocalStorage("attendx_leaves", leaves);
+    syncStorage.setLocalStorage("attendx_coffs", coffs);
+    syncStorage.setLocalStorage("attendx_special_duties", specialDuties);
+    syncStorage.setLocalStorage("attendx_holidays", holidays);
+    syncStorage.setLocalStorage("attendx_admin_id", adminId);
+    syncStorage.setLocalStorage("attendx_admin_pwd", adminPassword);
+  }, [
+    user, employees, roles, departments, designations, leaveTypes, taskTypes, 
+    attendance, leaves, coffs, specialDuties, holidays, adminId, adminPassword
+  ]);
+
+  // -------------------------------------------------------------
+  // USER PORTAL ROUTERS & LOGINS
+  // -------------------------------------------------------------
+  const executeLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginEmail.trim() || !loginPwd.trim()) {
+      alert("Credentials cannot be left blank.");
+      return;
+    }
+
+    if (loginTab === "admin") {
+      if (loginEmail.trim().toUpperCase() === adminId.toUpperCase() && loginPwd === adminPassword) {
+        setUser({
+          id: "super-admin",
+          empId: "SUPER_ADMIN",
+          firstName: "Administrator",
+          lastName: "Control",
+          email: "admin@attendx.com",
+          userRole: "Admin",
+          doj: new Date().toISOString().split("T")[0]
+        });
+        setAdminTab("dashboard");
+      } else {
+        alert("The specified Admin credentials do not match.");
+      }
+    } else {
+      const emp = employees.find(e => e.email.trim().toLowerCase() === loginEmail.trim().toLowerCase());
+      if (emp) {
+        const empRole = roles.find(r => r.empId === emp.id);
+        if (!empRole || !empRole.department || empRole.department.trim() === "") {
+          alert("Login Restricted: Access is disabled until your department has been formally assigned by an Administrator.");
+          return;
+        }
+        if (loginPwd === emp.password || loginPwd === emp.empId) {
+          setUser(emp);
+        } else {
+          alert("Incorrect password. Please verify.");
+        }
+      } else {
+        alert("Registered email address not found in local records directory.");
+      }
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setLoginEmail("");
+    setLoginPwd("");
+  };
+
+  // -------------------------------------------------------------
+  // ADMINISTRATIVE DIRECTORY MANAGERS
+  // -------------------------------------------------------------
+  const handleOpenEmpForm = (emp: Employee | null = null) => {
+    if (emp) {
+      setEditEmpId(emp.id);
+      setFFirst(emp.firstName);
+      setFLast(emp.lastName);
+      setFFather(emp.fatherName || "");
+      setFGender(emp.gender || "");
+      setFMarital(emp.maritalStatus || "");
+      setFDob(emp.dob || "");
+      setFEmail(emp.email);
+      setFWorkCon(emp.workContact || "");
+      setFPersCon(emp.personalContact || "");
+      setFPermAddr(emp.permAddress || "");
+      setFCommAddr(emp.commAddress || "");
+      setFDoj(emp.doj);
+      setFSource(emp.hireSource || "");
+      setFType(emp.empType || "");
+      setFAadhaar(emp.aadhaar || "");
+      setFPan(emp.pan || "");
+      setFAadhaarFile(emp.aadhaarFile || null);
+      setFAadhaarFileName(emp.aadhaarFileName || "");
+      setFPanFile(emp.panFile || null);
+      setFPanFileName(emp.panFileName || "");
+    } else {
+      setEditEmpId(null);
+      setFFirst("");
+      setFLast("");
+      setFFather("");
+      setFGender("");
+      setFMarital("");
+      setFDob("");
+      setFEmail("");
+      setFWorkCon("");
+      setFPersCon("");
+      setFPermAddr("");
+      setFCommAddr("");
+      setFDoj(new Date().toISOString().split("T")[0]);
+      setFSource("Job Portal");
+      setFType("Permanent");
+      setFAadhaar("");
+      setFPan("");
+      setFAadhaarFile(null);
+      setFAadhaarFileName("");
+      setFPanFile(null);
+      setFPanFileName("");
+    }
+    setIsEmpFormOpen(true);
+  };
+
+  const handleSaveEmployee = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fFirst.trim() || !fLast.trim() || !fEmail.trim() || !fDoj) {
+      alert("Missing required bounds (Name, Email, Joining properties).");
+      return;
+    }
+
+    if (editEmpId) {
+      setEmployees(prev => prev.map(emp => {
+        if (emp.id === editEmpId) {
+          return {
+            ...emp,
+            firstName: fFirst,
+            lastName: fLast,
+            fatherName: fFather,
+            gender: fGender,
+            maritalStatus: fMarital,
+            dob: fDob,
+            email: fEmail,
+            workContact: fWorkCon,
+            personalContact: fPersCon,
+            permAddress: fPermAddr,
+            commAddress: fCommAddr,
+            doj: fDoj,
+            hireSource: fSource,
+            empType: fType,
+            aadhaar: fAadhaar,
+            pan: fPan,
+            aadhaarFile: fAadhaarFile,
+            aadhaarFileName: fAadhaarFileName,
+            panFile: fPanFile,
+            panFileName: fPanFileName
+          };
+        }
+        return emp;
+      }));
+      alert(`Updated credentials of ${fFirst} successfully.`);
+    } else {
+      const idxStr = String(employees.length + 1).padStart(3, "0");
+      const empId = `EMP${idxStr}`;
+      const newEmp: Employee = {
+        id: `emp-${Date.now()}`,
+        empId,
+        firstName: fFirst,
+        lastName: fLast,
+        fatherName: fFather,
+        gender: fGender,
+        maritalStatus: fMarital,
+        dob: fDob,
+        email: fEmail,
+        workContact: fWorkCon,
+        personalContact: fPersCon,
+        permAddress: fPermAddr,
+        commAddress: fCommAddr,
+        doj: fDoj,
+        hireSource: fSource,
+        empType: fType,
+        userRole: "Employee",
+        password: empId,
+        aadhaar: fAadhaar,
+        pan: fPan,
+        aadhaarFile: fAadhaarFile,
+        aadhaarFileName: fAadhaarFileName,
+        panFile: fPanFile,
+        panFileName: fPanFileName
+      };
+      setEmployees(prev => [...prev, newEmp]);
+
+      // Seed automatic alignment role mapping (starts unassigned)
+      const standardRole: RoleAssignment = {
+        empId: newEmp.id,
+        department: "",
+        designation: "",
+        status: "Active"
+      };
+      setRoles(prev => [...prev, standardRole]);
+      alert(`Created credentials of ${fFirst}. Init Password: ${empId}. (NOTE: Set their assigned Department before they can log in.)`);
+    }
+    setIsEmpFormOpen(false);
+  };
+
+  const handleFileUpload = (type: "aadhaar" | "pan", e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (type === "aadhaar") {
+        setFAadhaarFile(reader.result as string);
+        setFAadhaarFileName(file.name);
+      } else {
+        setFPanFile(reader.result as string);
+        setFPanFileName(file.name);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAssignRole = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selRoleEmp || !selRoleDept || !selRoleDesig) {
+      alert("Specify matching Department and Designation references.");
+      return;
+    }
+    setRoles(prev => {
+      const exists = prev.find(r => r.empId === selRoleEmp);
+      if (exists) {
+        return prev.map(r => r.empId === selRoleEmp ? { ...r, department: selRoleDept, designation: selRoleDesig, status: selRoleStatus } : r);
+      } else {
+        const newAssignment: RoleAssignment = {
+          empId: selRoleEmp,
+          department: selRoleDept,
+          designation: selRoleDesig,
+          status: selRoleStatus
+        };
+        return [...prev, newAssignment];
+      }
+    });
+    alert("Employee department role assignments cataloged successfully! ✅");
+  };
+
+  // -------------------------------------------------------------
+  // DATABASE STATE CONSOLE MUTATORS & SYNC SETTINGS
+  // -------------------------------------------------------------
+  const handleConfigureFirebase = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fbApiKey.trim() || !fbProjId.trim() || !fbAppId.trim()) {
+      alert("Missing credential indexes. Connecting locally.");
+      return;
+    }
+    syncStorage.setLocalStorage("attendx_fb_apikey", fbApiKey);
+    syncStorage.setLocalStorage("attendx_fb_projid", fbProjId);
+    syncStorage.setLocalStorage("attendx_fb_appid", fbAppId);
+    syncStorage.setLocalStorage("attendx_fb_dburl", fbDbUrl);
+    setFbConfigured(true);
+    alert("Firebase Connection Synced. Active Cloud Run parameters live! ✅");
+  };
+
+  const handleWipeDatabase = () => {
+    if (confirm("Are you sure? This will delete all corporate logs, files, and schedules permanently.")) {
+      localStorage.clear();
+      setEmployees(SEED_EMPLOYEES);
+      setRoles(SEED_ROLES);
+      setDepartments(SEED_DEPARTMENTS);
+      setDesignations(SEED_DESIGNATIONS);
+      setLeaveTypes(SEED_LEAVE_TYPES);
+      setTaskTypes(SEED_TASK_TYPES);
+      setAttendance([]);
+      setLeaves([]);
+      setCoffs([]);
+      setSpecialDuties([]);
+      setHolidays(SEED_HOLIDAYS);
+      handleLogout();
+    }
+  };
+
+  const handleWipePunchesOnly = () => {
+    if (confirm("Delete all granular day-wise punches, leave applications, and C-Off histories? (Keep Employees directory)")) {
+      setAttendance([]);
+      setLeaves([]);
+      setCoffs([]);
+      setSpecialDuties([]);
+      alert("Operational records deleted. Catalog reset.");
+    }
+  };
+
+  // -------------------------------------------------------------
+  // APPROVALS FLOW CONTROLS
+  // -------------------------------------------------------------
+  const handleApproveItem = (type: string, id: string) => {
+    if (type === "attendance") {
+      setAttendance(prev => prev.map(a => a.id === id ? { ...a, approval: "Approved", approvedBy: user?.firstName || "Admin" } : a));
+    } else if (type === "leave") {
+      setLeaves(prev => prev.map(l => l.id === id ? { ...l, status: "Approved", approvedBy: user?.firstName || "Admin" } : l));
+    } else if (type === "coff") {
+      setCoffs(prev => prev.map(c => c.id === id ? { ...c, status: "Approved", approvedBy: user?.firstName || "Admin" } : c));
+    } else if (type === "sd") {
+      setSpecialDuties(prev => prev.map(s => s.id === id ? { ...s, status: "Approved", approvedBy: user?.firstName || "Admin" } : s));
+    }
+    alert("Requested Item approved successfully! ✅");
+  };
+
+  const handleAuditRejectTrigger = (type: string, id: string, requireResubmit: boolean) => {
+    setActiveRejectTarget({ type, id, requireResubmit });
+    setRejectReasonPrompt("");
+  };
+
+  const handleResolveRejection = () => {
+    if (!activeRejectTarget) return;
+    const { type, id, requireResubmit } = activeRejectTarget;
+    const statusVal = requireResubmit ? "Rejected-Resubmit" : "Rejected";
+
+    if (type === "attendance") {
+      setAttendance(prev => prev.map(a => a.id === id ? { ...a, approval: statusVal, rejectReason: rejectReasonPrompt } : a));
+    } else if (type === "leave") {
+      setLeaves(prev => prev.map(l => l.id === id ? { ...l, status: statusVal, rejectReason: rejectReasonPrompt } : l));
+    } else if (type === "coff") {
+      setCoffs(prev => prev.map(c => c.id === id ? { ...c, status: statusVal, rejectReason: rejectReasonPrompt } : c));
+    } else if (type === "sd") {
+      setSpecialDuties(prev => prev.map(s => s.id === id ? { ...s, status: statusVal, rejectReason: rejectReasonPrompt } : s));
+    }
+
+    setActiveRejectTarget(null);
+    alert(`Item updated to ${statusVal}. Reason archived.`);
+  };
+
+  // -------------------------------------------------------------
+  // SUB COMPONENT ACTIONS PASS THROUGH
+  // -------------------------------------------------------------
+  const handleEmployeeSubmitAttendance = (rec: Attendance) => {
+    setAttendance(prev => {
+      const exists = prev.some(a => a.id === rec.id);
+      if (exists) {
+        return prev.map(a => a.id === rec.id ? rec : a);
+      }
+      return [...prev, rec];
+    });
+  };
+  const handleEmployeeSubmitLeave = (rec: Leave) => {
+    setLeaves(prev => {
+      const exists = prev.some(l => l.id === rec.id);
+      if (exists) {
+        return prev.map(l => l.id === rec.id ? rec : l);
+      }
+      return [...prev, rec];
+    });
+  };
+  const handleEmployeeSubmitCoff = (rec: Coff) => {
+    setCoffs(prev => {
+      const exists = prev.some(c => c.id === rec.id);
+      if (exists) {
+        return prev.map(c => c.id === rec.id ? rec : c);
+      }
+      return [...prev, rec];
+    });
+  };
+  const handleEmployeeSubmitSD = (rec: SpecialDuty) => {
+    setSpecialDuties(prev => {
+      const exists = prev.some(s => s.id === rec.id);
+      if (exists) {
+        return prev.map(s => s.id === rec.id ? rec : s);
+      }
+      return [...prev, rec];
+    });
+  };
+
+  const handleDeleteRecord = (type: "attendance" | "leave" | "coff" | "sd", id: string) => {
+    if (type === "attendance") {
+      setAttendance(prev => prev.filter(x => x.id !== id));
+    } else if (type === "leave") {
+      setLeaves(prev => prev.filter(x => x.id !== id));
+    } else if (type === "coff") {
+      setCoffs(prev => prev.filter(x => x.id !== id));
+    } else if (type === "sd") {
+      setSpecialDuties(prev => prev.filter(x => x.id !== id));
+    }
+  };
+
+  // -------------------------------------------------------------
+  // RENDERING COMPASS
+  // -------------------------------------------------------------
+  const searchingEmployeesList = employees.filter(e => {
+    const term = searchEmp.toLowerCase();
+    return (
+      e.firstName.toLowerCase().includes(term) ||
+      e.lastName.toLowerCase().includes(term) ||
+      e.email.toLowerCase().includes(term) ||
+      e.empId.toLowerCase().includes(term)
+    );
+  });
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-200 flex flex-col font-sans">
+      {/* Dynamic Header */}
+      <header className="bg-slate-900 text-white shadow-md border-b border-slate-800 px-6 py-4 flex items-center justify-between no-print">
+        <div className="flex items-center gap-3">
+          <span className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-xl font-bold font-display shadow-lg shadow-indigo-900/30 text-white">
+            🕐
+          </span>
+          <div>
+            <h1 className="text-lg font-bold tracking-tight font-display text-white uppercase flex items-center gap-2 leading-none">
+              AttendX
+              <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/30 font-mono tracking-tight lowercase">v3.4.0-stable</span>
+            </h1>
+            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mt-1 leading-none">
+              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse inline-block"></span>
+              Enterprise Workforce Hub
+            </p>
+          </div>
+        </div>
+
+        {user && (
+          <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-2 text-xs text-slate-400">
+              <span className="w-2 h-2 bg-emerald-400 rounded-full"></span>
+              <span>Firebase Connection: Connected</span>
+            </div>
+            <span className="hidden sm:inline text-xs text-slate-400 font-mono font-medium">Logged in: {user.email}</span>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-750 text-xs rounded-lg transition-all font-semibold cursor-pointer border border-slate-700/60"
+            >
+              <LogOut className="w-4 h-4 text-rose-400" />
+              Sign Out
+            </button>
+          </div>
+        )}
+      </header>
+
+      {/* Main Content Stage */}
+      <main className="flex-1 flex flex-col p-4 sm:p-6 pb-24 md:pb-6 max-w-7xl w-full mx-auto">
+        {!user ? (
+          /* Login Dialog Container */
+          <div className="flex-1 flex items-center justify-center py-12">
+            <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-8 shadow-xl space-y-6 relative overflow-hidden">
+              <div className="absolute top-0 inset-x-0 h-1.5 bg-indigo-600"></div>
+
+              <div className="text-center space-y-2">
+                <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-2xl mx-auto shadow-inner">
+                  🕐
+                </div>
+                <h2 className="text-xl font-bold text-slate-800 font-display">Sign In to Dashboard</h2>
+                <p className="text-xs text-slate-400 leading-snug">Choose Admin or employee credential keys below.</p>
+              </div>
+
+              {/* Login Tabs */}
+              <div className="grid grid-cols-2 gap-2 border border-slate-150 p-1 rounded-xl bg-slate-50/55">
+                <button
+                  onClick={() => setLoginTab("admin")}
+                  className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    loginTab === "admin" ? "bg-white text-slate-800 shadow" : "text-slate-400"
+                  }`}
+                >
+                  👑 Admin Console
+                </button>
+                <button
+                  onClick={() => setLoginTab("employee")}
+                  className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    loginTab === "employee" ? "bg-white text-slate-800 shadow" : "text-slate-400"
+                  }`}
+                >
+                  👤 Staff Self-Service
+                </button>
+              </div>
+
+              <form onSubmit={executeLogin} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 font-mono">
+                    {loginTab === "admin" ? "SYSTEM ID" : "REGISTERED EMAIL"}
+                  </label>
+                  <input
+                    type={loginTab === "admin" ? "text" : "email"}
+                    value={loginEmail}
+                    onChange={e => setLoginEmail(e.target.value)}
+                    required
+                    placeholder={loginTab === "admin" ? "ADMIN" : "e.g. employee@attendx.com"}
+                    className="w-full text-sm border border-slate-250 rounded-xl px-3.5 py-3 bg-white focus:outline-none focus:border-indigo-500 transition-all font-sans"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 font-mono">PASSWORD KEY</label>
+                  <div className="relative">
+                    <input
+                      type={isPwdVisible ? "text" : "password"}
+                      value={loginPwd}
+                      onChange={e => setLoginPwd(e.target.value)}
+                      required
+                      placeholder="••••••••"
+                      className="w-full text-sm border border-slate-250 rounded-xl px-3.5 py-3 bg-white focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setIsPwdVisible(prev => !prev)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400 hover:text-indigo-600 transition-all"
+                    >
+                      {isPwdVisible ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                </div>
+
+                {loginTab === "admin" && (
+                  <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-[10px] text-slate-500 leading-normal font-sans">
+                    Default Sandbox keys: User ID <b>ADMIN</b> | Password <b>Admin@123</b>. Change in configs.
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm tracking-wide rounded-xl shadow-lg shadow-indigo-100 transition-all cursor-pointer border-none"
+                >
+                  Access Workspace
+                </button>
+              </form>
+            </div>
+          </div>
+        ) : user.userRole === "Admin" ? (
+          /* ADMINISTRATIVE EXECUTIVE DESK */
+          <div className="space-y-6">
+            {/* Nav bars - Desktop-only */}
+            <div className="hidden md:flex overflow-x-auto gap-2 pb-1 border-b border-indigo-100 no-print">
+              {[
+                { k: "dashboard", label: "🏠 Overview" },
+                { k: "employees", label: "👥 Employees Catalog" },
+                { k: "assignments", label: "🎭 Dept Assignments" },
+                { k: "masterdata", label: "⚙️ Master Lists" },
+                { k: "approvals", label: "📋 Approvals Hub" },
+                { k: "holidays", label: "📅 Holiday Master" },
+                { k: "reports", label: "📊 Report Matrix" },
+                { k: "tests", label: "🧪 Unit Testing" },
+                { k: "documentation", label: "📖 Dev Onboarding" },
+                { k: "database", label: "☁️ Database Config" }
+              ].map(tab => (
+                <button
+                  key={tab.k}
+                  onClick={() => {
+                    setAdminTab(tab.k);
+                    setShowAllMobileTools(false);
+                  }}
+                  className={`px-4 py-2.5 text-xs font-extrabold rounded-lg whitespace-nowrap transition-all cursor-pointer ${
+                    adminTab === tab.k ? "bg-indigo-600 text-white shadow" : "bg-white hover:bg-slate-100 text-slate-600 border border-slate-205"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Mobile Bottom Navigation Dock */}
+            <div className="md:hidden fixed bottom-0 inset-x-0 bg-slate-950 border-t border-slate-800 z-50 px-2 py-1 flex items-center justify-around no-print shadow-2xl">
+              <button
+                onClick={() => { setAdminTab("dashboard"); setShowAllMobileTools(false); }}
+                className={`flex flex-col items-center justify-center p-2 text-[10px] uppercase font-bold transition-all ${
+                  adminTab === "dashboard" && !showAllMobileTools ? "text-indigo-400" : "text-slate-400"
+                }`}
+              >
+                <span className="text-xl">🏠</span>
+                <span className="mt-0.5 leading-none">Home</span>
+              </button>
+
+              <button
+                onClick={() => { setAdminTab("employees"); setShowAllMobileTools(false); }}
+                className={`flex flex-col items-center justify-center p-2 text-[10px] uppercase font-bold transition-all ${
+                  adminTab === "employees" && !showAllMobileTools ? "text-indigo-400" : "text-slate-400"
+                }`}
+              >
+                <span className="text-xl">👥</span>
+                <span className="mt-0.5 leading-none">Staff</span>
+              </button>
+
+              <button
+                onClick={() => { setAdminTab("approvals"); setShowAllMobileTools(false); }}
+                className={`flex flex-col items-center justify-center p-2 text-[10px] uppercase font-bold relative transition-all ${
+                  adminTab === "approvals" && !showAllMobileTools ? "text-indigo-400" : "text-slate-400"
+                }`}
+              >
+                <span className="text-xl">📋</span>
+                <span className="mt-0.5 leading-none">Approvals</span>
+                {(attendance.filter(a => a.approval === "Pending" && a.punchOutTime).length + 
+                  leaves.filter(l => l.status === "Pending").length +
+                  coffs.filter(c => c.status === "Pending").length +
+                  specialDuties.filter(s => s.status === "Pending").length) > 0 && (
+                  <span className="absolute top-1.5 right-3.5 w-2 h-2 bg-rose-500 rounded-full animate-pulse"></span>
+                )}
+              </button>
+
+              <button
+                onClick={() => { setAdminTab("reports"); setShowAllMobileTools(false); }}
+                className={`flex flex-col items-center justify-center p-2 text-[10px] uppercase font-bold transition-all ${
+                  adminTab === "reports" && !showAllMobileTools ? "text-indigo-400" : "text-slate-400"
+                }`}
+              >
+                <span className="text-xl">📊</span>
+                <span className="mt-0.5 leading-none">Reports</span>
+              </button>
+
+              <button
+                onClick={() => setShowAllMobileTools(prev => !prev)}
+                className={`flex flex-col items-center justify-center p-2 text-[10px] uppercase font-bold transition-all ${
+                  showAllMobileTools ? "text-indigo-400 font-extrabold" : "text-slate-400"
+                }`}
+              >
+                <span className="text-xl">⚙️</span>
+                <span className="mt-0.5 leading-none">Tools</span>
+              </button>
+            </div>
+
+            {/* Mobile Expandable Tools Overlay Grid */}
+            {showAllMobileTools && (
+              <div className="md:hidden bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-2xl relative z-40 animate-in fade-in slide-in-from-bottom-4 duration-200 no-print">
+                <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-3">
+                  <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest font-mono">Administrative Controls</h4>
+                  <button onClick={() => setShowAllMobileTools(false)} className="text-xs font-bold text-rose-500 hover:text-rose-400 uppercase font-mono">
+                    Close
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pb-8">
+                  {[
+                    { k: "assignments", label: "🎭 Roles Assignment", desc: "Designate and map roles" },
+                    { k: "masterdata", label: "⚙️ Master Lists", desc: "Task/leave fields setup" },
+                    { k: "holidays", label: "📅 Holiday Master", desc: "Configure off-dates" },
+                    { k: "tests", label: "🧪 Diagnostics Suite", desc: "Automated unit tests" },
+                    { k: "documentation", label: "📖 Dev Onboarding", desc: "Onboarding docs" },
+                    { k: "database", label: "☁️ Database Config", desc: "Firebase configurations" }
+                  ].map(sec => (
+                    <button
+                      key={sec.k}
+                      onClick={() => {
+                        setAdminTab(sec.k);
+                        setShowAllMobileTools(false);
+                      }}
+                      className={`flex flex-col items-start p-3 rounded-xl text-left border transition-all cursor-pointer ${
+                        adminTab === sec.k
+                          ? "bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/20"
+                          : "bg-slate-950 hover:bg-slate-900 text-slate-300 border-slate-800"
+                      }`}
+                    >
+                      <span className="text-xs font-extrabold block">{sec.label}</span>
+                      <span className="text-[9px] text-slate-500 block mt-0.5 line-clamp-1 leading-none">{sec.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Render Panels */}
+            {adminTab === "dashboard" && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest pl-1 font-mono">STAFF ATTENDANCE INDEX</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-center">
+                        <div className="text-3xl font-bold text-indigo-700 font-display">{employees.length}</div>
+                        <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider mt-1 font-sans">Active Employees</p>
+                      </div>
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-center">
+                        <div className="text-3xl font-bold text-emerald-700 font-display">
+                          {attendance.filter(a => a.date === new Date().toISOString().split("T")[0] && a.status === "Present" && a.approval === "Approved").length}
+                        </div>
+                        <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mt-1 font-sans">Present Today</p>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-center">
+                        <div className="text-3xl font-bold text-amber-700 font-display">
+                          {leaves.filter(l => l.status === "Pending").length}
+                        </div>
+                        <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mt-1 font-sans">Pending Leaves</p>
+                      </div>
+                      <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 text-center">
+                        <div className="text-3xl font-bold text-rose-700 font-display">
+                          {attendance.filter(a => a.approval === "Pending" && a.punchOutTime).length}
+                        </div>
+                        <p className="text-[10px] text-rose-505 font-bold uppercase tracking-wider mt-1 font-sans">Pending Punches</p>
+                      </div>
+                      <div className="bg-sky-50 border border-sky-100 rounded-xl p-4 text-center">
+                        <div className="text-3xl font-bold text-sky-700 font-display">
+                          {coffs.filter(c => c.status === "Pending").length}
+                        </div>
+                        <p className="text-[10px] text-sky-600 font-bold uppercase tracking-wider mt-1 font-sans">Pending C-Off Claims</p>
+                      </div>
+                      <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 text-center">
+                        <div className="text-3xl font-bold text-purple-700 font-display">
+                          {specialDuties.filter(s => s.status === "Pending").length}
+                        </div>
+                        <p className="text-[10px] text-purple-600 font-bold uppercase tracking-wider mt-1 font-sans">Pending Special Duties</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* High Quality Seed employees statistics summary grid */}
+                  <div className="bg-white border border-slate-200 rounded-1.5xl p-5 shadow-sm space-y-4">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-600" />
+                      Seeded Department Stats
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                      {departments
+                        .filter(dept => roles.filter(r => r.department === dept && r.status === "Active").length > 0)
+                        .map(dept => {
+                          const count = roles.filter(r => r.department === dept && r.status === "Active").length;
+                          return (
+                            <div key={dept} className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-center space-y-1">
+                              <span className="font-semibold text-slate-800 text-sm block">{dept}</span>
+                              <span className="font-mono text-xs text-indigo-600 font-bold uppercase">{count} assigned</span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-1 space-y-6">
+                  {/* System connectivity specs */}
+                  <div className="bg-slate-900 text-slate-200 rounded-2xl p-5 shadow-inner space-y-4 border border-slate-800">
+                    <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-widest font-mono">DATABASE DIAGNOSTICS</h3>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>Database Mode:</span>
+                        <span className="font-bold text-white font-mono bg-indigo-950 px-2 py-0.5 rounded border border-indigo-800">LOCAL (HYBRID)</span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>Telemetry tracking:</span>
+                        <span className="text-emerald-500 font-extrabold uppercase">Live ✅</span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-400">
+                        <span>Punches recorded:</span>
+                        <span className="font-bold text-white font-mono">{attendance.length} items</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminTab === "employees" && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-indigo-50 pb-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-800 font-display">Employees Master Directory</h2>
+                    <p className="text-xs text-slate-400">Register employee profiles, upload identity credentials, or execute deletes.</p>
+                  </div>
+                  <button
+                    onClick={() => handleOpenEmpForm(null)}
+                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs uppercase tracking-wider rounded-lg transition-all shadow-md cursor-pointer inline-flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Add Employee Account
+                  </button>
+                </div>
+
+                {isEmpFormOpen && (
+                  <div className="bg-white border border-slate-250 rounded-2xl p-6 shadow-xl max-w-4xl mx-auto space-y-4 relative">
+                    <div className="absolute top-0 inset-x-0 h-1.5 bg-indigo-600"></div>
+                    <h3 className="font-display font-semibold text-base text-slate-800">
+                      {editEmpId ? "Update Employee Data Properties" : "Register New Employer Directory Identity"}
+                    </h3>
+
+                    <form onSubmit={handleSaveEmployee} className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">FIRST Name *</label>
+                          <input type="text" required value={fFirst} onChange={e => setFFirst(e.target.value)} className="w-full text-sm px-3 py-2.5 border rounded-lg focus:outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">LAST Name *</label>
+                          <input type="text" required value={fLast} onChange={e => setFLast(e.target.value)} className="w-full text-sm px-3 py-2.5 border rounded-lg focus:outline-none" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Father / Spouse Name</label>
+                          <input type="text" value={fFather} onChange={e => setFFather(e.target.value)} className="w-full text-sm px-3 py-2.5 border rounded-lg focus:outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Date of Birth</label>
+                          <input type="date" value={fDob} onChange={e => setFDob(e.target.value)} className="w-full text-sm px-3 py-2.5 border rounded-lg focus:outline-none" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Email Address *</label>
+                          <input type="email" required value={fEmail} onChange={e => setFEmail(e.target.value)} className="w-full text-sm px-3 py-2.5 border rounded-lg focus:outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Work Contact</label>
+                          <input type="text" value={fWorkCon} onChange={e => setFWorkCon(e.target.value)} className="w-full text-sm px-3 py-2.5 border rounded-lg focus:outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Date of Joining *</label>
+                          <input type="date" required value={fDoj} onChange={e => setFDoj(e.target.value)} className="w-full text-sm px-3 py-2.5 border rounded-lg focus:outline-none" />
+                        </div>
+                      </div>
+
+                      {/* File uploads section */}
+                      <div className="bg-slate-50 p-4 rounded-xl grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-200">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 font-display">Aadhaar card index</label>
+                          <input type="text" placeholder="12-digit UID" value={fAadhaar} onChange={e => setFAadhaar(e.target.value)} className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none bg-white mb-2" />
+                          <input type="file" onChange={e => handleFileUpload("aadhaar", e)} className="text-xs file:mr-3 file:py-1 file:px-2" />
+                          {fAadhaarFileName && <p className="text-[10px] text-slate-500 mt-1 font-mono">Uploaded: {fAadhaarFileName}</p>}
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 font-display">PAN card index</label>
+                          <input type="text" placeholder="10-digit PAN" value={fPan} onChange={e => setFPan(e.target.value)} className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none bg-white mb-2" />
+                          <input type="file" onChange={e => handleFileUpload("pan", e)} className="text-xs file:mr-3 file:py-1 file:px-2" />
+                          {fPanFileName && <p className="text-[10px] text-slate-500 mt-1 font-mono">Uploaded: {fPanFileName}</p>}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Permanent Address</label>
+                          <textarea rows={2} value={fPermAddr} onChange={e => setFPermAddr(e.target.value)} className="w-full text-xs p-3 border rounded-lg focus:outline-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Communication Address</label>
+                          <textarea rows={2} value={fCommAddr} onChange={e => setFCommAddr(e.target.value)} className="w-full text-xs p-3 border rounded-lg focus:outline-none" />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button type="submit" className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase rounded-lg cursor-pointer">
+                          Save Employee Identity Data
+                        </button>
+                        <button type="button" onClick={() => setIsEmpFormOpen(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs uppercase rounded-lg">
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* Directory table */}
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="p-4 border-b border-slate-150 flex items-center justify-between gap-4">
+                    <div className="relative w-full max-w-sm">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search employee by name, ID or email..."
+                        value={searchEmp}
+                        onChange={e => setSearchEmp(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left border-collapse min-w-[720px]">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 font-mono font-bold uppercase tracking-wider text-slate-400">
+                          <th className="p-4">Employee</th>
+                          <th className="p-4">Email</th>
+                          <th className="p-4">Work ID</th>
+                          <th className="p-4">D.O.J</th>
+                          <th className="p-4">Identity Fields</th>
+                          <th className="p-4 text-right">Directory Options</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {searchingEmployeesList.map(e => (
+                          <tr key={e.id} className="hover:bg-slate-50/40">
+                            <td className="p-4 font-bold text-slate-800">
+                              {e.firstName} {e.lastName}
+                            </td>
+                            <td className="p-4 font-mono text-slate-500">{e.email}</td>
+                            <td className="p-4 font-mono font-extrabold text-indigo-600">{e.empId}</td>
+                            <td className="p-4 font-mono">{e.doj}</td>
+                            <td className="p-4 space-y-0.5">
+                              {e.aadhaar && <div className="text-[10px] font-mono text-slate-500">AADHAAR: {e.aadhaar}</div>}
+                              {e.pan && <div className="text-[10px] font-mono text-slate-500">PAN: {e.pan}</div>}
+                            </td>
+                            <td className="p-4 text-right space-x-1 whitespace-nowrap">
+                              <button
+                                onClick={() => handleOpenEmpForm(e)}
+                                className="p-2.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                                title="Edit employee properties"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (confirm(`Are you sure you want to delete ${e.firstName}?`)) {
+                                    setEmployees(prev => prev.filter(emp => emp.id !== e.id));
+                                  }
+                                }}
+                                className="p-2.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                title="Delete from system"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminTab === "assignments" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="font-display font-semibold text-base text-slate-800 border-b border-indigo-50 pb-2">Modify Employee Department</h3>
+                  <form onSubmit={handleAssignRole} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">SELECT STAFF MEMBER *</label>
+                      <select
+                        required
+                        value={selRoleEmp}
+                        onChange={e => setSelRoleEmp(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-xs bg-white focus:outline-none"
+                      >
+                        <option value="">Choose employee...</option>
+                        {employees.map(e => (
+                          <option key={e.id} value={e.id}>
+                            {e.firstName} {e.lastName} ({e.empId})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">ASSIGN DEPARTMENT *</label>
+                      <select
+                        required
+                        value={selRoleDept}
+                        onChange={e => setSelRoleDept(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-xs bg-white focus:outline-none"
+                      >
+                        <option value="">Select...</option>
+                        {departments.map(d => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">ASSIGN DESIGNATION *</label>
+                      <select
+                        required
+                        value={selRoleDesig}
+                        onChange={e => setSelRoleDesig(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-xs bg-white focus:outline-none"
+                      >
+                        <option value="">Select...</option>
+                        {designations.map(d => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">OPERATIONAL STATUS *</label>
+                      <select
+                        value={selRoleStatus}
+                        onChange={e => setSelRoleStatus(e.target.value as any)}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-xs bg-white focus:outline-none"
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                        <option value="Left">Left</option>
+                        <option value="Others">Others</option>
+                      </select>
+                    </div>
+
+                    <button type="submit" className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs uppercase tracking-wider rounded-lg transition-all shadow-sm">
+                      Assign Employee Details
+                    </button>
+                  </form>
+                </div>
+
+                {/* Listing Active assignments */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="font-display font-semibold text-base text-slate-800 border-b border-indigo-50 pb-2">Active Department Registry</h3>
+                  <div className="space-y-3 max-h-[450px] overflow-y-auto pr-1">
+                    {roles.length === 0 ? (
+                      <p className="text-slate-400 text-xs py-8 text-center">No structural roles assigned yet.</p>
+                    ) : (
+                      roles.map((r, idx) => {
+                        const target = employees.find(e => e.id === r.empId);
+                        if (!target) return null;
+                        return (
+                          <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                            <div>
+                              <div className="text-xs font-bold text-slate-800">
+                                {target.firstName} {target.lastName} <span className="font-mono text-slate-400 font-normal">({target.empId})</span>
+                              </div>
+                              <div className="text-[10px] text-indigo-750 font-mono mt-0.5 flex items-center gap-1">
+                                {r.department ? (
+                                  <span>{r.department} &middot; {r.designation}</span>
+                                ) : (
+                                  <span className="text-amber-600 font-bold bg-amber-50 px-1 py-0.5 rounded border border-amber-100 flex items-center gap-1">
+                                    ⚠️ Unassigned (Login Disabled)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="px-2 py-0.5 text-[9px] font-bold uppercase rounded bg-indigo-100 border border-indigo-200 text-indigo-700">
+                              {r.status}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminTab === "masterdata" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Departments */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 col-span-1">
+                  <h3 className="font-display font-bold text-sm text-slate-800 border-b pb-2 flex items-center gap-2">
+                    <Building className="w-4 h-4 text-indigo-600" /> Departments Directory
+                  </h3>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="New dept..." value={newDept} onChange={e => setNewDept(e.target.value)} className="text-xs px-3 py-2 border rounded-lg flex-1 focus:outline-none" />
+                    <button onClick={() => {
+                      if (!newDept.trim()) return;
+                      setDepartments(prev => [...prev, newDept.trim()]);
+                      setNewDept("");
+                    }} className="px-3 py-2 bg-indigo-600 text-white font-bold text-xs rounded-lg uppercase cursor-pointer">Add</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {departments.map((d, idx) => (
+                      <span key={idx} className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs rounded-full border border-slate-250 font-medium inline-block">
+                        {d}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Designations */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 col-span-1">
+                  <h3 className="font-display font-bold text-sm text-slate-800 border-b pb-2 flex items-center gap-2">
+                    <FolderPlus className="w-4 h-4 text-indigo-600" /> Designations Range
+                  </h3>
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="New desig..." value={newDesig} onChange={e => setNewDesig(e.target.value)} className="text-xs px-3 py-2 border rounded-lg flex-1 focus:outline-none" />
+                    <button onClick={() => {
+                      if (!newDesig.trim()) return;
+                      setDesignations(prev => [...prev, newDesig.trim()]);
+                      setNewDesig("");
+                    }} className="px-3 py-2 bg-indigo-600 text-white font-bold text-xs rounded-lg uppercase cursor-pointer">Add</button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {designations.map((d, idx) => (
+                      <span key={idx} className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs rounded-full border border-slate-250 font-medium inline-block">
+                        {d}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminTab === "approvals" && (
+              <div className="space-y-6">
+                <div className="border-b border-indigo-50 pb-4">
+                  <h2 className="text-xl font-bold text-slate-800 font-display">Administrative Approvals Hub</h2>
+                  <p className="text-xs text-slate-400">Review pending working punches, leave applications, Comp-off, and holiday schedules.</p>
+                </div>
+
+                {/* Attendance Submissions */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2">
+                    <ClipboardCheck className="w-5 h-5 text-indigo-600" />
+                    Pending Attendance Submissions ({attendance.filter(a => a.approval === "Pending" && a.punchOutTime).length})
+                  </h3>
+
+                  {attendance.filter(a => a.approval === "Pending" && a.punchOutTime).length === 0 ? (
+                    <p className="text-slate-400 text-xs py-8 text-center">No pending attendance logs require attention.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {attendance
+                        .filter(a => a.approval === "Pending" && a.punchOutTime)
+                        .map((a) => (
+                          <div key={a.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm text-slate-900">{a.empName}</span>
+                                <span className="font-mono text-xs text-indigo-600 font-semibold">{a.taskId}</span>
+                              </div>
+                              <p className="text-xs text-slate-500 font-serif leading-relaxed">
+                                Date Scope: <b>{a.date} {a.punchOutDate ? `to ${a.punchOutDate}` : ""}</b> | Logged: <b>{a.punchInTime} to {a.punchOutTime}</b>
+                              </p>
+                              {a.description && <p className="text-xs text-slate-600 italic">Task details: "{a.description}"</p>}
+                              {a.gpsIn && (
+                                <p className="text-[10px] text-emerald-600 font-mono">
+                                  📍 Punch-In address: {a.gpsIn.address || `${a.gpsIn.lat.toFixed(5)}, ${a.gpsIn.lng.toFixed(5)}`}
+                                </p>
+                              )}
+                              {a.gpsOut && (
+                                <p className="text-[10px] text-amber-655 font-mono">
+                                  📍 Punch-Out address: {a.gpsOut.address || `${a.gpsOut.lat.toFixed(5)}, ${a.gpsOut.lng.toFixed(5)}`}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                              <button
+                                onClick={() => handleApproveItem("attendance", a.id)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg uppercase cursor-pointer transition-all"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleAuditRejectTrigger("attendance", a.id, true)}
+                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg uppercase cursor-pointer transition-all"
+                              >
+                                Reject (Resubmit)
+                              </button>
+                              <button
+                                onClick={() => handleAuditRejectTrigger("attendance", a.id, false)}
+                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg uppercase cursor-pointer transition-all"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Leave Applications */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2">
+                    <Calendar className="w-5 h-5 text-indigo-600" />
+                    Pending Leaves ({leaves.filter(l => l.status === "Pending").length})
+                  </h3>
+
+                  {leaves.filter(l => l.status === "Pending").length === 0 ? (
+                    <p className="text-slate-400 text-xs py-8 text-center">No pending leave claims requiring attention.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {leaves
+                        .filter(l => l.status === "Pending")
+                        .map((l) => (
+                          <div key={l.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="font-bold text-sm text-slate-900">{getEmpName(l.empId)}</div>
+                              <p className="text-xs text-slate-500">
+                                Leave Scope: <b>{l.leaveType}</b> | Period: <b>{l.from} to {l.to}</b> ({l.days} days)
+                              </p>
+                              <p className="text-xs text-slate-600">Reasoning context: "{l.reason}"</p>
+                            </div>
+
+                            <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                              <button
+                                onClick={() => handleApproveItem("leave", l.id)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleAuditRejectTrigger("leave", l.id, true)}
+                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Reject (Resubmit)
+                              </button>
+                              <button
+                                onClick={() => handleAuditRejectTrigger("leave", l.id, false)}
+                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Compensatory Off claims (C-Off) */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2">
+                    <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+                    Pending Comp-Off Claims ({coffs.filter(c => c.status === "Pending").length})
+                  </h3>
+
+                  {coffs.filter(c => c.status === "Pending").length === 0 ? (
+                    <p className="text-slate-400 text-xs py-8 text-center">No pending Comp-off claims requiring attention.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {coffs
+                        .filter(c => c.status === "Pending")
+                        .map((c) => (
+                          <div key={c.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="font-bold text-sm text-slate-900">{getEmpName(c.empId)}</div>
+                              <p className="text-xs text-slate-500">
+                                Requested C-Off Date: <b>{c.date}</b>
+                              </p>
+                              <p className="text-xs text-slate-600">Work Reason / Claim Grounds: "{c.reason}"</p>
+                            </div>
+
+                            <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                              <button
+                                onClick={() => handleApproveItem("coff", c.id)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleAuditRejectTrigger("coff", c.id, true)}
+                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Reject (Resubmit)
+                              </button>
+                              <button
+                                onClick={() => handleAuditRejectTrigger("coff", c.id, false)}
+                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Special Duty Allowance Authorizations */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2">
+                    <ClipboardCheck className="w-5 h-5 text-indigo-600" />
+                    Pending Special Duty Authorizations ({specialDuties.filter(s => s.status === "Pending").length})
+                  </h3>
+
+                  {specialDuties.filter(s => s.status === "Pending").length === 0 ? (
+                    <p className="text-slate-400 text-xs py-8 text-center">No pending Special Duty authorizations requiring attention.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {specialDuties
+                        .filter(s => s.status === "Pending")
+                        .map((s) => (
+                          <div key={s.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="font-bold text-sm text-slate-900">{getEmpName(s.empId)}</div>
+                              <p className="text-xs text-slate-500">
+                                Target Date: <b>{s.date}</b> {s.description && <span>| Nature of work: <b>{s.description}</b></span>}
+                              </p>
+                              <p className="text-xs text-slate-600">Requirement justification: "{s.reason}"</p>
+                            </div>
+
+                            <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                              <button
+                                onClick={() => handleApproveItem("sd", s.id)}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleAuditRejectTrigger("sd", s.id, true)}
+                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Reject (Resubmit)
+                              </button>
+                              <button
+                                onClick={() => handleAuditRejectTrigger("sd", s.id, false)}
+                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg uppercase cursor-pointer"
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {adminTab === "holidays" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="font-display font-semibold text-base text-slate-800 border-b border-indigo-50 pb-2">Modify General Holiday Calendar</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Holiday Date *</label>
+                      <input type="date" value={newHolDate} onChange={e => setNewHolDate(e.target.value)} className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none bg-white font-mono" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Holiday Name *</label>
+                      <input type="text" placeholder="e.g. Diwali celebration..." value={newHolName} onChange={e => setNewHolName(e.target.value)} className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none bg-white font-sans" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Holiday Classification *</label>
+                      <select value={newHolType} onChange={e => setNewHolType(e.target.value as any)} className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none bg-white">
+                        <option value="National">National</option>
+                        <option value="State">State</option>
+                        <option value="Optional">Optional</option>
+                        <option value="Custom">Custom</option>
+                      </select>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        if (!newHolDate || !newHolName.trim()) {
+                          alert("Select holiday date and name.");
+                          return;
+                        }
+                        const nHol: Holiday = {
+                          id: `hol-${Date.now()}`,
+                          date: newHolDate,
+                          name: newHolName.trim(),
+                          type: newHolType
+                        };
+                        setHolidays(prev => [...prev, nHol]);
+                        setNewHolDate("");
+                        setNewHolName("");
+                        setNewHolType("National");
+                        alert("Holiday added successfully! ✅");
+                      }}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-lg transition-all shadow-sm cursor-pointer"
+                    >
+                      Commit Holiday Details
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="font-display font-semibold text-base text-slate-800 border-b border-indigo-50 pb-2">Calendar holidays ({holidays.length})</h3>
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {holidays.map(h => (
+                      <div key={h.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-bold text-slate-800">{h.name}</div>
+                          <div className="text-[10px] text-indigo-600 font-mono mt-0.5">{h.date} | Class: {h.type}</div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Remove holiday ${h.name}?`)) {
+                              setHolidays(prev => prev.filter(x => x.id !== h.id));
+                            }
+                          }}
+                          className="p-1 px-2.5 text-xs text-rose-600 hover:bg-rose-50 border border-rose-300 rounded font-bold"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminTab === "reports" && (
+              <AdminReports
+                employees={employees}
+                attendance={attendance}
+                leaves={leaves}
+                coffs={coffs}
+                specialDuties={specialDuties}
+                holidays={holidays}
+              />
+            )}
+
+            {adminTab === "tests" && <TestCenter />}
+
+            {adminTab === "documentation" && <DocsDashboard />}
+
+            {adminTab === "database" && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2">
+                    <Database className="w-5 h-5 text-indigo-600" />
+                    Configure Database parameters
+                  </h3>
+
+                  <form onSubmit={handleConfigureFirebase} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Firebase API KEY</label>
+                      <input type="text" value={fbApiKey} onChange={e => setFbApiKey(e.target.value)} placeholder="AIzaSy..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Firebase PROJECT ID</label>
+                      <input type="text" value={fbProjId} onChange={e => setFbProjId(e.target.value)} placeholder="project-id" className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Firebase App ID</label>
+                      <input type="text" value={fbAppId} onChange={e => setFbAppId(e.target.value)} placeholder="1:34..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Firebase Rtdb Database URL (opt.)</label>
+                      <input type="text" value={fbDbUrl} onChange={e => setFbDbUrl(e.target.value)} placeholder="https://..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
+                    </div>
+
+                    <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase rounded-lg">
+                      Sync connection parameters
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                  <h3 className="text-sm font-bold text-rose-500 flex items-center gap-2 border-b border-rose-100 pb-2">
+                    <Trash2 className="w-5 h-5 text-rose-500" />
+                    Reset system caches
+                  </h3>
+
+                  <div className="space-y-4">
+                    <p className="text-xs text-slate-500 leading-normal font-sans">
+                      Wipe database configurations, cookies, and local index entries. Use these buttons to clean state before committing production deployments.
+                    </p>
+
+                    <div className="flex flex-col gap-2">
+                      <button
+                        onClick={handleWipePunchesOnly}
+                        className="py-2.5 bg-slate-100 border border-slate-250 hover:bg-slate-200 text-slate-700 font-semibold text-xs uppercase rounded-lg"
+                      >
+                        Reset Operations punches only
+                      </button>
+                      <button
+                        onClick={handleWipeDatabase}
+                        className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase rounded-lg"
+                      >
+                        Wipe entire database properties
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* WORKFORCE SELF SERVICE PORTAL (EMPLOYEE MODE) */
+          <EmployeeDashboard
+            user={user}
+            attendance={attendance}
+            leaves={leaves}
+            coffs={coffs}
+            specialDuties={specialDuties}
+            holidays={holidays}
+            taskTypes={taskTypes}
+            leaveTypes={leaveTypes}
+            onSubmitAttendance={handleEmployeeSubmitAttendance}
+            onSubmitLeave={handleEmployeeSubmitLeave}
+            onSubmitCoff={handleEmployeeSubmitCoff}
+            onSubmitSpecialDuty={handleEmployeeSubmitSD}
+            onDeleteRecord={handleDeleteRecord}
+          />
+        )}
+      </main>
+
+      {/* Floating Audit Rejection Reason Dialog Modal */}
+      {activeRejectTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-250 rounded-2xl max-w-md w-full p-6 space-y-4 relative shadow-2xl">
+            <h3 className="font-display font-semibold text-slate-800 text-sm border-b pb-2">Specify Rejection Context</h3>
+            <div>
+              <p className="text-xs text-slate-500 leading-normal mb-3 font-sans">
+                Type in the contextual description explaining the grounds for rejection. Employees see this in real-time.
+              </p>
+              <textarea
+                value={rejectReasonPrompt}
+                onChange={e => setRejectReasonPrompt(e.target.value)}
+                rows={3}
+                placeholder="Ex. Missing descriptive task, incorrect geolocation duration, etc..."
+                className="w-full text-xs border border-slate-250 rounded-lg p-2.5 bg-white focus:outline-none"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleResolveRejection}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase rounded-lg"
+              >
+                Disburse Rejection State
+              </button>
+              <button
+                onClick={() => setActiveRejectTarget(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs uppercase rounded-lg"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer copyright */}
+      <footer className="h-12 bg-slate-900 border-t border-slate-800 px-6 flex items-center justify-between text-[10px] text-slate-500 uppercase tracking-widest no-print">
+        <div className="flex items-center space-x-4">
+          <span>Region: global-sandbox (Firebase)</span>
+          <span className="hidden sm:inline">|</span>
+          <span className="hidden sm:inline">Cloud Run Instance: Stable</span>
+        </div>
+        <div className="flex items-center space-x-4">
+          <span>Last Sync: Real-time</span>
+          <span className="hidden sm:inline">|</span>
+          <span className="text-indigo-400 font-bold">Configuration Optimized</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
