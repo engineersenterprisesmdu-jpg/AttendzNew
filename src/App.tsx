@@ -47,7 +47,7 @@ export default function App() {
   };
 
   // UI routes
-  const [loginTab, setLoginTab] = useState<"admin" | "employee">("admin");
+  const [showDemoLogins, setShowDemoLogins] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPwd, setLoginPwd] = useState("");
   const [isPwdVisible, setIsPwdVisible] = useState(false);
@@ -139,13 +139,15 @@ export default function App() {
   // -------------------------------------------------------------
   const executeLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginEmail.trim() || !loginPwd.trim()) {
+    const identifier = loginEmail.trim();
+    if (!identifier || !loginPwd.trim()) {
       alert("Credentials cannot be left blank.");
       return;
     }
 
-    if (loginTab === "admin") {
-      if (loginEmail.trim().toUpperCase() === adminId.toUpperCase() && loginPwd === adminPassword) {
+    // 1. Check if trying to login as admin
+    if (identifier.toUpperCase() === adminId.toUpperCase()) {
+      if (loginPwd === adminPassword) {
         setUser({
           id: "super-admin",
           empId: "SUPER_ADMIN",
@@ -159,22 +161,29 @@ export default function App() {
       } else {
         alert("The specified Admin credentials do not match.");
       }
-    } else {
-      const emp = employees.find(e => e.email.trim().toLowerCase() === loginEmail.trim().toLowerCase());
-      if (emp) {
-        const empRole = roles.find(r => r.empId === emp.id);
-        if (!empRole || !empRole.department || empRole.department.trim() === "") {
-          alert("Login Restricted: Access is disabled until your department has been formally assigned by an Administrator.");
-          return;
-        }
-        if (loginPwd === emp.password || loginPwd === emp.empId) {
-          setUser(emp);
-        } else {
-          alert("Incorrect password. Please verify.");
-        }
-      } else {
-        alert("Registered email address not found in local records directory.");
+      return;
+    }
+
+    // 2. Check if trying to login as employee (match by Email or Employee ID)
+    const emp = employees.find(
+      e =>
+        e.email.trim().toLowerCase() === identifier.toLowerCase() ||
+        e.empId.trim().toLowerCase() === identifier.toLowerCase()
+    );
+
+    if (emp) {
+      const empRole = roles.find(r => r.empId === emp.id);
+      if (!empRole || !empRole.department || empRole.department.trim() === "") {
+        alert("Login Restricted: Access is disabled until your department has been formally assigned by an Administrator.");
+        return;
       }
+      if (loginPwd === emp.password || loginPwd === emp.empId) {
+        setUser(emp);
+      } else {
+        alert("Incorrect password. Please verify.");
+      }
+    } else {
+      alert("Account credentials not recognized. Please verify your Email or Employee ID.");
     }
   };
 
@@ -557,40 +566,20 @@ export default function App() {
                   🕐
                 </div>
                 <h2 className="text-xl font-bold text-slate-800 font-display">Sign In to Dashboard</h2>
-                <p className="text-xs text-slate-400 leading-snug">Choose Admin or employee credential keys below.</p>
-              </div>
-
-              {/* Login Tabs */}
-              <div className="grid grid-cols-2 gap-2 border border-slate-150 p-1 rounded-xl bg-slate-50/55">
-                <button
-                  onClick={() => setLoginTab("admin")}
-                  className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    loginTab === "admin" ? "bg-white text-slate-800 shadow" : "text-slate-400"
-                  }`}
-                >
-                  👑 Admin Console
-                </button>
-                <button
-                  onClick={() => setLoginTab("employee")}
-                  className={`py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    loginTab === "employee" ? "bg-white text-slate-800 shadow" : "text-slate-400"
-                  }`}
-                >
-                  👤 Staff Self-Service
-                </button>
+                <p className="text-xs text-slate-400 leading-snug">Enter your credentials to access your administrative desk or staff self-service workspace.</p>
               </div>
 
               <form onSubmit={executeLogin} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 font-mono">
-                    {loginTab === "admin" ? "SYSTEM ID" : "REGISTERED EMAIL"}
+                    EMAIL OR EMPLOYEE ID / USER ID
                   </label>
                   <input
-                    type={loginTab === "admin" ? "text" : "email"}
+                    type="text"
                     value={loginEmail}
                     onChange={e => setLoginEmail(e.target.value)}
                     required
-                    placeholder={loginTab === "admin" ? "ADMIN" : "e.g. employee@attendx.com"}
+                    placeholder="e.g. ADMIN or your registered email / ID"
                     className="w-full text-sm border border-slate-250 rounded-xl px-3.5 py-3 bg-white focus:outline-none focus:border-indigo-500 transition-all font-sans"
                   />
                 </div>
@@ -616,12 +605,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {loginTab === "admin" && (
-                  <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 text-[10px] text-slate-500 leading-normal font-sans">
-                    Default Sandbox keys: User ID <b>ADMIN</b> | Password <b>Admin@123</b>. Change in configs.
-                  </div>
-                )}
-
                 <button
                   type="submit"
                   className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm tracking-wide rounded-xl shadow-lg shadow-indigo-100 transition-all cursor-pointer border-none"
@@ -629,6 +612,31 @@ export default function App() {
                   Access Workspace
                 </button>
               </form>
+
+              {/* Demo Credentials Guide */}
+              <div className="border-t border-slate-100 pt-4 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDemoLogins(!showDemoLogins)}
+                  className="w-full text-left text-xs font-bold text-indigo-600 hover:text-indigo-700 font-mono flex items-center justify-between cursor-pointer"
+                >
+                  <span>🔑 DEMO CREDENTIALS QUICK GUIDE</span>
+                  <span>{showDemoLogins ? "Collapse ▲" : "Expand ▼"}</span>
+                </button>
+                {showDemoLogins && (
+                  <div className="mt-2.5 bg-slate-50 border border-slate-150 rounded-xl p-3 text-[11px] text-slate-600 leading-relaxed font-sans space-y-2">
+                    <div>
+                      <strong className="text-slate-800">Admin Console Access:</strong>
+                      <div className="mt-0.5">Use User ID: <code className="bg-white border border-slate-200 px-1 py-0.5 rounded font-bold font-mono text-indigo-700">ADMIN</code> and Password: <code className="bg-white border border-slate-200 px-1 py-0.5 rounded font-bold font-mono text-indigo-700">Admin@123</code></div>
+                    </div>
+                    <div className="border-t border-slate-150 pt-1.5">
+                      <strong className="text-slate-800">Staff Self-Service Access:</strong>
+                      <div className="mt-0.5">Use any active Employee ID (e.g. <code className="bg-white border border-slate-200 px-1 py-0.5 rounded font-mono">EMP001</code>) or email with their corresponding password.</div>
+                      <div className="text-[10px] text-slate-400 mt-1"><em>Note: Newly registered employees must have their Department assigned in the Admin console before access is granted.</em></div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ) : user.userRole === "Admin" ? (
