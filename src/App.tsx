@@ -14,14 +14,21 @@ import {
   syncStorage, 
   initFirebaseService, 
   getFirebaseStatus, 
-  firestoreSetDoc, 
-  firestoreDeleteDoc, 
+  firestoreSetDoc as originalFirestoreSetDoc, 
+  firestoreDeleteDoc as originalFirestoreDeleteDoc, 
   handleFirestoreError, 
   OperationType 
 } from "./firebase-service";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { HARDCODED_FIREBASE_CONFIG } from "./firebase-config";
 import { uploadToSupabaseStorage, SUPABASE_URL, STORAGE_BUCKET_NAME } from "./supabase-client";
+import { 
+  supabaseSetDoc, 
+  supabaseDeleteDoc, 
+  supabaseListenCollection, 
+  checkSupabaseTableExists, 
+  SYNC_TABLE_NAME 
+} from "./supabase-service";
 
 import { DocsDashboard } from "./components/DocsDashboard";
 import { TestCenter } from "./components/TestCenter";
@@ -66,7 +73,7 @@ export default function App() {
   // Admin portal tab
   const [adminTab, setAdminTab] = useState("dashboard"); // dashboard, employees, assignments, masterdata, approvals, holidays, reports, tests, documentation, database
   const [showAllMobileTools, setShowAllMobileTools] = useState(false);
-  const [guideTab, setGuideTab] = useState<"firebase" | "supabase">("supabase");
+  const [guideTab, setGuideTab] = useState<"firebase" | "supabase-storage" | "supabase-db">("supabase-db");
 
   // Employee Form variables
   const [isEmpFormOpen, setIsEmpFormOpen] = useState(false);
@@ -122,6 +129,15 @@ export default function App() {
   const [rejectReasonPrompt, setRejectReasonPrompt] = useState("");
   const [activeRejectTarget, setActiveRejectTarget] = useState<{ type: string; id: string; requireResubmit: boolean } | null>(null);
 
+  // Unified Database Router Settings
+  const [dbMode, setDbMode] = useState<"local" | "firebase" | "supabase">(() => {
+    return (localStorage.getItem("attendx_db_mode") as any) || "supabase";
+  });
+  
+  // Storage bucket and sync state configurations
+  const [sbTableExists, setSbTableExists] = useState<boolean | null>(null);
+  const [sbCheckingTable, setSbCheckingTable] = useState(false);
+
   // Live Firebase connection setup variables
   const [fbApiKey, setFbApiKey] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_apikey", HARDCODED_FIREBASE_CONFIG.apiKey));
   const [fbProjId, setFbProjId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_projid", HARDCODED_FIREBASE_CONFIG.projectId));
@@ -133,6 +149,33 @@ export default function App() {
     const appid = localStorage.getItem("attendx_fb_appid") || HARDCODED_FIREBASE_CONFIG.appId;
     return !!(apikey && projid && appid);
   });
+
+  // Local Masking Overrides to intercept all existing Firestore calls dynamically
+  const firestoreSetDoc = async (collectionPath: string, docId: string, data: any) => {
+    if (dbMode === "supabase") {
+      try {
+        await supabaseSetDoc(collectionPath, docId, data);
+        console.log(`[Supabase Engine] Successfully saved ${collectionPath}/${docId}`);
+      } catch (err) {
+        console.error(`[Supabase Engine] Failed to save document:`, err);
+      }
+    } else if (dbMode === "firebase" && fbConfigured) {
+      await originalFirestoreSetDoc(collectionPath, docId, data);
+    }
+  };
+
+  const firestoreDeleteDoc = async (collectionPath: string, docId: string) => {
+    if (dbMode === "supabase") {
+      try {
+        await supabaseDeleteDoc(collectionPath, docId);
+        console.log(`[Supabase Engine] Successfully deleted ${collectionPath}/${docId}`);
+      } catch (err) {
+        console.error(`[Supabase Engine] Failed to delete document:`, err);
+      }
+    } else if (dbMode === "firebase" && fbConfigured) {
+      await originalFirestoreDeleteDoc(collectionPath, docId);
+    }
+  };
 
   // -------------------------------------------------------------
   // DYNAMIC FIREBASE SERVER COUPLING
@@ -155,8 +198,90 @@ export default function App() {
     }
   }, [fbApiKey, fbProjId, fbAppId]);
 
-  // Synchronize Firestore collections to local state in Realtime
+  // -------------------------------------------------------------
+  // REAL-TIME CLOUD DATABASE SYNCHRONIZERS (FIREBASE vs SUPABASE)
+  // -------------------------------------------------------------
+  
+  // A. Supabase Realtime DB Synchronizer
   useEffect(() => {
+    if (dbMode !== "supabase") return;
+
+    setSbCheckingTable(true);
+    checkSupabaseTableExists().then(exists => {
+      setSbTableExists(exists);
+      setSbCheckingTable(false);
+    });
+
+    const unsubscribes: (() => void)[] = [];
+
+    const setupSbListener = (collectionName: string, setState: (data: any) => void, currentLocalState: any = []) => {
+      try {
+        const sub = supabaseListenCollection(collectionName, (list) => {
+          // If Supabase is empty, seed with the current local state
+          if (list.length === 0 && currentLocalState && currentLocalState.length > 0) {
+            console.log(`[Supabase Sync] ${collectionName} was empty. Auto-seeding local index to Supabase...`);
+            currentLocalState.forEach((item: any) => {
+              const docId = item.id || item.empId;
+              if (docId) {
+                supabaseSetDoc(collectionName, docId, item);
+              }
+            });
+          } else {
+            console.log(`[Supabase Sync] Fetched ${list.length} docs for '${collectionName}'`);
+            setState(list);
+          }
+        });
+        unsubscribes.push(sub.unsubscribe);
+      } catch (err) {
+        console.error(`Error hooking up Supabase listener for ${collectionName}:`, err);
+      }
+    };
+
+    setupSbListener("employees", setEmployees, employees);
+    setupSbListener("roles", setRoles, roles);
+    setupSbListener("attendance", setAttendance, attendance);
+    setupSbListener("leaves", setLeaves, leaves);
+    setupSbListener("coffs", setCoffs, coffs);
+    setupSbListener("specialDuties", setSpecialDuties, specialDuties);
+    setupSbListener("holidays", setHolidays, holidays);
+
+    // Sync Global Settings
+    try {
+      const subSettings = supabaseListenCollection("settings", (list) => {
+        const globalConfig = list.find(item => item.id === "global" || item.departments);
+        if (globalConfig) {
+          if (globalConfig.adminId) setAdminId(globalConfig.adminId);
+          if (globalConfig.adminPassword) setAdminPassword(globalConfig.adminPassword);
+          if (globalConfig.departments) setDepartments(globalConfig.departments);
+          if (globalConfig.designations) setDesignations(globalConfig.designations);
+          if (globalConfig.leaveTypes) setLeaveTypes(globalConfig.leaveTypes);
+          if (globalConfig.taskTypes) setTaskTypes(globalConfig.taskTypes);
+        } else {
+          // Seed settings to Supabase
+          supabaseSetDoc("settings", "global", {
+            id: "global",
+            adminId,
+            adminPassword,
+            departments,
+            designations,
+            leaveTypes,
+            taskTypes
+          });
+        }
+      });
+      unsubscribes.push(subSettings.unsubscribe);
+    } catch (err) {
+      console.error("Error setting up Supabase Global Settings Listener", err);
+    }
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub());
+    };
+  }, [dbMode]);
+
+  // B. Firebase Firestore DB Synchronizer
+  useEffect(() => {
+    if (dbMode !== "firebase") return;
     const { isConfigured, db } = getFirebaseStatus();
     if (!isConfigured || !db) return;
 
@@ -178,7 +303,7 @@ export default function App() {
             currentLocalState.forEach((item: any) => {
               const docId = item.id || item.empId;
               if (docId) {
-                firestoreSetDoc(collectionName, docId, item);
+                originalFirestoreSetDoc(collectionName, docId, item);
               }
             });
           } else {
@@ -216,7 +341,7 @@ export default function App() {
           if (data.taskTypes) setTaskTypes(data.taskTypes);
         } else {
           // Seed settings to cloud
-          firestoreSetDoc("settings", "global", {
+          originalFirestoreSetDoc("settings", "global", {
             adminId,
             adminPassword,
             departments,
@@ -236,7 +361,7 @@ export default function App() {
     return () => {
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [fbConfigured]);
+  }, [dbMode, fbConfigured]);
 
   // -------------------------------------------------------------
   // SYNCHRONIZATION EFFECT WRAPPER
@@ -1891,110 +2016,265 @@ export default function App() {
             {adminTab === "database" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2 font-display">
                     <Database className="w-5 h-5 text-indigo-600" />
-                    Configure Database parameters
+                    Corporate Storage Parameters
                   </h3>
 
-                  {fbConfigured ? (
-                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2.5 text-xs text-emerald-800 font-bold font-sans">
-                      <span className="w-2 bg-emerald-500 h-2 rounded-full animate-pulse flex-shrink-0"></span>
-                      <span>☁️ CLOUD FIRESTORE SYNC ACTIVE</span>
+                  {/* Active Database Engine Switcher */}
+                  <div className="bg-slate-50 border border-slate-150 rounded-xl p-3.5 space-y-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono">
+                      Active Sync Engine
+                    </label>
+                    <div className="grid grid-cols-3 gap-1 bg-white p-1 border border-slate-200 rounded-lg">
+                      <button
+                        onClick={() => {
+                          setDbMode("supabase");
+                          localStorage.setItem("attendx_db_mode", "supabase");
+                        }}
+                        className={`py-2 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer border-none text-center ${
+                          dbMode === "supabase"
+                            ? "bg-indigo-600 text-white shadow"
+                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                        }`}
+                      >
+                        ⚡ Supabase Cloud
+                      </button>
+                      <button
+                        onClick={() => {
+                          setDbMode("firebase");
+                          localStorage.setItem("attendx_db_mode", "firebase");
+                        }}
+                        className={`py-2 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer border-none text-center ${
+                          dbMode === "firebase"
+                            ? "bg-indigo-600 text-white shadow"
+                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                        }`}
+                      >
+                        🔥 Firebase Sync
+                      </button>
+                      <button
+                        onClick={() => {
+                          setDbMode("local");
+                          localStorage.setItem("attendx_db_mode", "local");
+                        }}
+                        className={`py-2 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer border-none text-center ${
+                          dbMode === "local"
+                            ? "bg-indigo-600 text-white shadow"
+                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                        }`}
+                      >
+                        🔌 Local Cache
+                      </button>
                     </div>
-                  ) : (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2.5 text-xs text-amber-800 font-medium font-sans">
-                      <span className="w-2 bg-amber-400 h-2 rounded-full flex-shrink-0"></span>
-                      <span>💡 Offline Sandbox Mode (Local Cache Only)</span>
+                  </div>
+
+                  {/* System Status Indicators based on dbMode */}
+                  {dbMode === "supabase" && (
+                    <div className="space-y-3">
+                      {sbTableExists === true ? (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2.5 text-xs text-emerald-800 font-bold font-sans">
+                          <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0"></span>
+                          <span>SUPABASE CLOUD SYNC ACTIVE & WORKING</span>
+                        </div>
+                      ) : sbTableExists === false ? (
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-col gap-1.5 text-xs text-amber-800 font-sans leading-normal">
+                          <div className="flex items-center gap-2.5 font-bold">
+                            <span className="w-2.5 h-2.5 bg-amber-500 rounded-full flex-shrink-0"></span>
+                            <span>SUPABASE CONNECTED (Sync Table Missing)</span>
+                          </div>
+                          <span className="text-[11px] text-slate-600">
+                            The database exists but the sync table <code className="bg-white border text-amber-900 font-mono font-bold px-1 rounded">attendx_sync</code> has not been detected. Please copy and run the SQL code from the guide tab on the right side of your screen to authorize records sync!
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl flex items-center gap-2.5 text-xs text-indigo-700 font-medium font-sans animate-pulse">
+                          <span className="w-2 h-2 bg-indigo-500 rounded-full flex-shrink-0"></span>
+                          <span>Verifying Active Supabase DB Connection...</span>
+                        </div>
+                      )}
+
+                      <div className="bg-slate-50 border rounded-xl p-3 space-y-2 text-xs text-slate-700">
+                        <span className="font-bold text-slate-800 block">Current Supabase Integration parameters:</span>
+                        <div className="font-mono text-[10px] space-y-1">
+                          <div className="truncate"><b className="text-slate-500">URL:</b> {SUPABASE_URL}</div>
+                          <div><b className="text-slate-500">BUCKET:</b> {STORAGE_BUCKET_NAME}</div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={async () => {
+                          setSbCheckingTable(true);
+                          try {
+                            const exists = await checkSupabaseTableExists();
+                            setSbTableExists(exists);
+                            if (exists) {
+                              alert("Database Sync Validated! connected to Supabase successfully and 'attendx_sync' table is active. ✅");
+                            } else {
+                              alert("Supabase connected! But the table 'attendx_sync' was not found. Please paste and execute Step 1 SQL in your Supabase SQL Editor. ⚠️");
+                            }
+                          } catch (err: any) {
+                            alert("Failed to connect to Supabase: " + (err?.message || err));
+                          } finally {
+                            setSbCheckingTable(false);
+                          }
+                        }}
+                        disabled={sbCheckingTable}
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs uppercase tracking-wider rounded-lg cursor-pointer transition-all"
+                      >
+                        {sbCheckingTable ? "Diagnosing Supabase Connection..." : "Verify Supabase Connection ↗"}
+                      </button>
                     </div>
                   )}
 
-                  <form onSubmit={handleConfigureFirebase} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Firebase API KEY</label>
-                      <input type="text" value={fbApiKey} onChange={e => setFbApiKey(e.target.value)} placeholder="AIzaSy..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
-                    </div>
+                  {dbMode === "firebase" && (
+                    <div className="space-y-4">
+                      {fbConfigured ? (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2.5 text-xs text-emerald-800 font-bold font-sans">
+                          <span className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0"></span>
+                          <span>☁️ CLOUD FIRESTORE SYNC ACTIVE</span>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2.5 text-xs text-amber-800 font-medium font-sans">
+                          <span className="w-2.5 h-2.5 bg-amber-400 rounded-full flex-shrink-0"></span>
+                          <span>💡 Offline Sandbox Mode (Local Cache Only)</span>
+                        </div>
+                      )}
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Firebase PROJECT ID</label>
-                      <input type="text" value={fbProjId} onChange={e => setFbProjId(e.target.value)} placeholder="project-id" className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
-                    </div>
+                      <form onSubmit={handleConfigureFirebase} className="space-y-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 font-mono">Firebase API KEY</label>
+                          <input type="text" value={fbApiKey} onChange={e => setFbApiKey(e.target.value)} placeholder="AIzaSy..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
+                        </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Firebase App ID</label>
-                      <input type="text" value={fbAppId} onChange={e => setFbAppId(e.target.value)} placeholder="1:34..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
-                    </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 font-mono">Firebase PROJECT ID</label>
+                          <input type="text" value={fbProjId} onChange={e => setFbProjId(e.target.value)} placeholder="project-id" className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
+                        </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-1.5 font-mono">Firebase Rtdb Database URL (opt.)</label>
-                      <input type="text" value={fbDbUrl} onChange={e => setFbDbUrl(e.target.value)} placeholder="https://..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
-                    </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 font-mono">Firebase App ID</label>
+                          <input type="text" value={fbAppId} onChange={e => setFbAppId(e.target.value)} placeholder="1:34..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
+                        </div>
 
-                    <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase rounded-lg">
-                      Sync connection parameters
-                    </button>
-                  </form>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 font-mono">Firebase Rtdb Database URL (opt.)</label>
+                          <input type="text" value={fbDbUrl} onChange={e => setFbDbUrl(e.target.value)} placeholder="https://..." className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none" />
+                        </div>
+
+                        <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase rounded-lg">
+                          Sync Firebase connection parameters
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
+                  {dbMode === "local" && (
+                    <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2 text-xs text-indigo-950 font-sans leading-relaxed">
+                      <span className="font-bold text-indigo-900 block font-display text-sm">🔋 Pure Offline Sandbox Active</span>
+                      <p>
+                        In Local Cache Mode, all operations (Employee checkins, shifts roster, leaves, master data adjustments) are immediately safely committed to your browser's persistent key-value localStorage.
+                      </p>
+                      <p className="font-semibold block text-indigo-800">
+                        ⚠️ Note: Local Offline variables remain sandboxed inside this browser and are not shared or synchronized across employee devices. Select Supabase to allow global sync.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
                   {/* Selector tabs */}
                   <div className="flex border-b border-slate-100 pb-1.5 gap-2">
                     <button
-                      onClick={() => setGuideTab("supabase")}
-                      className={`px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer ${
-                        guideTab === "supabase"
+                      onClick={() => setGuideTab("supabase-db")}
+                      className={`px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer border-none ${
+                        guideTab === "supabase-db"
                           ? "bg-indigo-600 text-white shadow"
-                          : "text-slate-600 hover:bg-slate-50 border border-transparent"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
                       }`}
                     >
-                      ⚡ Supabase Storage (Files)
+                      ⚡ Supabase DB (Records)
+                    </button>
+                    <button
+                      onClick={() => setGuideTab("supabase-storage")}
+                      className={`px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer border-none ${
+                        guideTab === "supabase-storage"
+                          ? "bg-indigo-600 text-white shadow"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                      }`}
+                    >
+                      📁 Supabase Storage (Files)
                     </button>
                     <button
                       onClick={() => setGuideTab("firebase")}
-                      className={`px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer ${
+                      className={`px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer border-none ${
                         guideTab === "firebase"
                           ? "bg-indigo-600 text-white shadow"
-                          : "text-slate-600 hover:bg-slate-50 border border-transparent"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
                       }`}
                     >
-                      🔥 Firebase Database (Records)
+                      🔥 Firebase Guide
                     </button>
                   </div>
 
-                  {guideTab === "firebase" ? (
+                  {guideTab === "supabase-db" && (
                     <div>
                       <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2 font-display">
-                        <Radio className="w-5 h-5 text-indigo-600 animate-pulse" />
-                        Firebase Cloud Integration Guide
+                        <Database className="w-5 h-5 text-indigo-600 animate-pulse" />
+                        Supabase database setup Guide (Records Sync)
                       </h3>
-                      <div className="mt-3.5 bg-indigo-50/60 border border-indigo-150 rounded-xl p-3.5 text-xs text-indigo-950 font-sans leading-relaxed space-y-2.5">
-                        <div className="bg-amber-100/80 border border-amber-300 text-amber-900 rounded-lg p-2.5 mb-2 font-semibold">
-                          ⚠️ IMPORTANT: Avoid "Realtime Database". Go to "Firestore Database" (Orange icon) instead!
+
+                      <div className="mt-3.5 bg-indigo-50/60 border border-indigo-150 rounded-xl p-3.5 text-xs text-indigo-950 font-sans leading-relaxed space-y-3">
+                        <div className="bg-indigo-600 text-white rounded-lg p-3 text-xs leading-normal">
+                          <span className="font-extrabold block mb-0.5">🚀 All-in-One Supabase Storage Enabled!</span>
+                          You can now record both details AND upload documents strictly inside Supabase, removing the need for Firebase entirely!
                         </div>
+
                         <div>
-                          <span className="font-bold block text-indigo-800">1. Cloud Firestore vs Realtime DB:</span>
-                          This system synchronizes using <b className="text-indigo-950 font-bold">Cloud Firestore</b>. Under no circumstances paste these rules in the "Realtime Database" tab (which is what failed in the screenshot). Click the <b className="text-indigo-700 font-bold uppercase font-mono">Firestore Database</b> menu item on the left, click its <b className="font-bold">Rules</b> tab, and paste there.
-                        </div>
-                        <div className="border-t border-indigo-150 pt-2">
-                          <span className="font-bold block text-indigo-800">2. Define Firestore Rules:</span>
-                          Go to your <b className="text-indigo-950">Firebase console &gt; Firestore Database (not Realtime Database!) &gt; Rules</b> and publish this block to permit reads and writes:
-                          <pre className="mt-1.5 p-2 bg-slate-900 text-slate-100 text-[10px] font-mono rounded overflow-x-auto select-all leading-normal">
-{`rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
-    }
-  }
-}`}
+                          <span className="font-bold block text-indigo-800">1. Open the SQL Editor in Supabase:</span>
+                          <span className="block text-slate-600 text-[11px] mt-0.5">
+                            Go to your <a href={SUPABASE_URL} target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:underline">Supabase Console Dashboard ↗</a>, choose the <b>SQL Editor</b> option on the left, and run this query block to declare your records storage:
+                          </span>
+                          <pre className="mt-2 p-2 bg-slate-900 text-slate-100 text-[9px] font-mono rounded overflow-x-auto select-all leading-normal">
+{`--- Create the document sync table for records
+CREATE TABLE IF NOT EXISTS public.attendx_sync (
+  collection_name TEXT NOT NULL,
+  doc_id TEXT NOT NULL,
+  data JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  PRIMARY KEY (collection_name, doc_id)
+);
+
+--- Enable Row Level Security (RLS)
+ALTER TABLE public.attendx_sync ENABLE ROW LEVEL SECURITY;
+
+--- Enable public access policies for simple, fast testing
+CREATE POLICY "Allow public read"
+ON public.attendx_sync FOR SELECT
+USING (true);
+
+CREATE POLICY "Allow public insert"
+ON public.attendx_sync FOR INSERT
+WITH CHECK (true);
+
+CREATE POLICY "Allow public update"
+ON public.attendx_sync FOR UPDATE
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow public delete"
+ON public.attendx_sync FOR DELETE
+USING (true);`}
                           </pre>
                         </div>
-                        <div className="border-t border-indigo-150 pt-2">
-                          <span className="font-bold block text-indigo-800">3. Activate Permanent Multi-Browser Sync:</span>
-                          To secure connections across all employee browsers and phone devices instantly without having to re-type keys: copy your credentials directly into the project's source file <code className="bg-white border border-indigo-200 px-1 py-0.5 rounded font-mono font-bold text-indigo-700">src/firebase-config.ts</code>!
+                        <div className="border-t border-indigo-150 pt-2 text-[10px] text-slate-600">
+                          🌟 Once created, click <b>"Verify Supabase Connection"</b> in the left panel to verify your active link status!
                         </div>
                       </div>
                     </div>
-                  ) : (
+                  )}
+
+                  {guideTab === "supabase-storage" && (
                     <div>
                       <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2 font-display">
                         <Database className="w-5 h-5 text-indigo-600" />
@@ -2002,7 +2282,7 @@ service cloud.firestore {
                       </h3>
                       <div className="mt-3.5 bg-indigo-50/60 border border-indigo-150 rounded-xl p-3.5 text-xs text-indigo-950 font-sans leading-relaxed space-y-3">
                         <div className="bg-indigo-600 text-white rounded-lg p-3 text-xs leading-normal">
-                          <span className="font-extrabold block mb-0.5">🚀 Supabase Storage Loaded Inline!</span>
+                          <span className="font-extrabold block mb-0.5">📁 Aadhaar & PAN Files Directory Loaded</span>
                           The app is pre-configured to upload Aadhaar and PAN documents to your bucket <span className="font-mono bg-indigo-800 px-1 rounded">Attendance-files</span> on Supabase.
                         </div>
 
@@ -2046,7 +2326,43 @@ WITH CHECK (bucket_id = '${STORAGE_BUCKET_NAME}');`}
                     </div>
                   )}
 
-                  <div className="border-t border-slate-100 pt-4">
+                  {guideTab === "firebase" && (
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2 font-display">
+                        <Radio className="w-5 h-5 text-indigo-600 animate-pulse" />
+                        Firebase Cloud Integration Guide
+                      </h3>
+                      <div className="mt-3.5 bg-indigo-50/60 border border-indigo-150 rounded-xl p-3.5 text-xs text-indigo-950 font-sans leading-relaxed space-y-2.5">
+                        <div className="bg-amber-100/80 border border-amber-300 text-amber-900 rounded-lg p-2.5 mb-2 font-semibold font-sans leading-normal">
+                          ⚠️ IMPORTANT: Avoid "Realtime Database". Go to "Firestore Database" (Orange icon) instead!
+                        </div>
+                        <div>
+                          <span className="font-bold block text-indigo-8002">1. Cloud Firestore vs Realtime DB:</span>
+                          This system synchronizes using <b className="text-indigo-950 font-bold">Cloud Firestore</b>. Under no circumstances paste these rules in the "Realtime Database" tab. Click the <b className="text-indigo-700 font-bold uppercase font-mono">Firestore Database</b> menu item on the left, click its <b className="font-bold">Rules</b> tab, and paste there.
+                        </div>
+                        <div className="border-t border-indigo-150 pt-2">
+                          <span className="font-bold block text-indigo-800">2. Define Firestore Rules:</span>
+                          Go to your <b className="text-indigo-950">Firebase console &gt; Firestore Database (not Realtime Database!) &gt; Rules</b> and publish this block to permit reads and writes:
+                          <pre className="mt-1.5 p-2 bg-slate-900 text-slate-100 text-[10px] font-mono rounded overflow-x-auto select-all leading-normal">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+                          </pre>
+                        </div>
+                        <div className="border-t border-indigo-150 pt-2">
+                          <span className="font-bold block text-indigo-800">3. Activate Permanent Multi-Browser Sync:</span>
+                          To secure connections across all employee browsers and phone devices instantly: copy your credentials directly into the project's source file <code className="bg-white border border-indigo-200 px-1 py-0.5 rounded font-mono font-bold text-indigo-700">src/firebase-config.ts</code>!
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="border-t border-slate-100 pt-4 font-sans">
                     <h3 className="text-xs font-bold text-rose-500 flex items-center gap-2 pb-2 font-display">
                       <Trash2 className="w-4 h-4 text-rose-500" />
                       Reset system caches
@@ -2066,7 +2382,7 @@ WITH CHECK (bucket_id = '${STORAGE_BUCKET_NAME}');`}
                         </button>
                         <button
                           onClick={handleWipeDatabase}
-                          className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase rounded-lg cursor-pointer border-none"
+                          className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs uppercase rounded-lg cursor-pointer border-none animate"
                         >
                           Wipe entire database properties
                         </button>
