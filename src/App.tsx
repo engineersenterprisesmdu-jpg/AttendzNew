@@ -158,11 +158,17 @@ export default function App() {
       try {
         await supabaseSetDoc(collectionPath, docId, data);
         console.log(`[Supabase Engine] Successfully saved ${collectionPath}/${docId}`);
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[Supabase Engine] Failed to save document:`, err);
+        alert(`⚠️ Cloud Database Sync Failed!\n\nUnable to save records to your Supabase cloud database.\n\nReason: ${err?.message || err}\n\n👉 ACTION REQUIRED: If you haven't already, please go to your Admin Portal > Database configuration and run the SQL Script in your Supabase SQL Editor to initialize the 'attendx_sync' table!`);
       }
     } else if (dbMode === "firebase" && fbConfigured) {
-      await originalFirestoreSetDoc(collectionPath, docId, data);
+      try {
+        await originalFirestoreSetDoc(collectionPath, docId, data);
+      } catch (err: any) {
+        console.error(`[Firebase Engine] Failed to save document:`, err);
+        alert(`⚠️ Firebase Database Sync Failed!\n\nUnable to save records to Cloud Firestore.\n\nError: ${err?.message || err}`);
+      }
     }
   };
 
@@ -171,11 +177,17 @@ export default function App() {
       try {
         await supabaseDeleteDoc(collectionPath, docId);
         console.log(`[Supabase Engine] Successfully deleted ${collectionPath}/${docId}`);
-      } catch (err) {
+      } catch (err: any) {
         console.error(`[Supabase Engine] Failed to delete document:`, err);
+        alert(`⚠️ Cloud Database Sync Failed!\n\nUnable to delete record from your Supabase cloud database.\n\nReason: ${err?.message || err}\n\n👉 ACTION REQUIRED: Please check if you have created the 'attendx_sync' table in Supabase and enabled the public access RLS policies listed in the Database tab.`);
       }
     } else if (dbMode === "firebase" && fbConfigured) {
-      await originalFirestoreDeleteDoc(collectionPath, docId);
+      try {
+        await originalFirestoreDeleteDoc(collectionPath, docId);
+      } catch (err: any) {
+        console.error(`[Firebase Engine] Failed to delete document:`, err);
+        alert(`⚠️ Firebase Database Sync Failed!\n\nUnable to delete records from Cloud Firestore.\n\nError: ${err?.message || err}`);
+      }
     }
   };
 
