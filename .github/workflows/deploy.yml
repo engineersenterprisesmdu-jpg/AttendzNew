@@ -20,7 +20,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: Code Quality Audit (Linter)
         run: npm run lint
@@ -46,7 +46,7 @@ jobs:
 
       - name: Install Dependencies and Build
         run: |
-          npm ci
+          npm install --legacy-peer-deps
           npm run build
 
       - name: Deploy to Firebase Hosting
