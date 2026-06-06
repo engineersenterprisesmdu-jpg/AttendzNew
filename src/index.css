@@ -196,7 +196,157 @@ p, span, div, h1, h2, h3, h4, h5, h6 {
 
 /* Print Layout overrides to make reporting templates beautiful in audits */
 @media print {
-  .no-print {
+  /* Hide all interactive, navigation, header, and sidebar elements */
+  .no-print, 
+  header, 
+  nav, 
+  footer, 
+  button, 
+  select, 
+  input, 
+  .no-print * {
     display: none !important;
+  }
+
+  /* Reset document and canvas constraints to enable normal block flow on paper */
+  html, body {
+    width: 100% !important;
+    height: auto !important;
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Page container resets */
+  main, 
+  div, 
+  section, 
+  article {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    overflow: visible !important;
+  }
+
+  /* Force display hidden-print header blocks */
+  .print\:block {
+    display: block !important;
+  }
+
+  /* Table container overflow override to prevent clipping on the right margin */
+  .overflow-x-auto, 
+  .overflow-hidden {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* Style the main ledger list wrapper container */
+  .bg-white, 
+  .bg-card, 
+  [class*="bg-white"], 
+  .border-slate-200, 
+  .bg-slate-50 {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Clean spreadsheet styling for reporting */
+  table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: auto !important;
+    border-collapse: collapse !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #94a3b8 !important;
+    margin-top: 15px !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 700 !important;
+    border: 1px solid #94a3b8 !important;
+    padding: 10px 14px !important;
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+  }
+
+  td {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+    border: 1px solid #e2e8f0 !important;
+    padding: 10px 14px !important;
+    font-size: 11px !important;
+  }
+
+  /* Make typography extremely high-contrast black/dark slate */
+  h1, h2, h3, h4, h5, h6, 
+  .font-semibold, 
+  .font-bold {
+    color: #000000 !important;
+  }
+
+  .text-slate-800, 
+  .text-slate-700, 
+  .text-slate-600, 
+  .text-slate-900 {
+    color: #0f172a !important;
+  }
+
+  .text-slate-400, 
+  .text-slate-500, 
+  .text-slate-450 {
+    color: #64748b !important;
+  }
+
+  /* Keep status badges colored but high contrast with clear borders */
+  span[class*="bg-emerald-50"], 
+  span[class*="text-emerald-700"] {
+    color: #15803d !important;
+    border: 1px solid #15803d !important;
+    background-color: #f0fdf4 !important;
+  }
+
+  span[class*="bg-rose-50"], 
+  span[class*="text-rose-700"] {
+    color: #b91c1c !important;
+    border: 1px solid #b91c1c !important;
+    background-color: #fef2f2 !important;
+  }
+
+  span[class*="bg-amber-50"], 
+  span[class*="text-amber-750"],
+  span[class*="text-amber-700"] {
+    color: #b45309 !important;
+    border: 1px solid #b45309 !important;
+    background-color: #fffbeb !important;
+  }
+
+  /* Set print page specifics to landscape for wide data columns and multi-marker maps */
+  @page {
+    size: landscape;
+    margin: 1cm !important;
   }
 }

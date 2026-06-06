@@ -173,7 +173,9 @@ export function AdminReports({
           timeLog: durationInfo.detailedLog,
           durationMinutes: durationInfo.rawMinutes,
           status: a.approval,
-          isOvernight: !!a.punchOutDate && a.punchOutDate !== a.date
+          isOvernight: !!a.punchOutDate && a.punchOutDate !== a.date,
+          gpsIn: a.gpsIn || null,
+          gpsOut: a.gpsOut || null
         });
       }
     });
@@ -190,7 +192,9 @@ export function AdminReports({
           timeLog: `Period: ${fmtDate(l.from)} to ${fmtDate(l.to)}`,
           durationMinutes: 0,
           status: l.status,
-          isOvernight: false
+          isOvernight: false,
+          gpsIn: null,
+          gpsOut: null
         });
       });
     }
@@ -206,7 +210,9 @@ export function AdminReports({
           timeLog: `Date: ${fmtDate(c.date)}`,
           durationMinutes: 0,
           status: c.status,
-          isOvernight: false
+          isOvernight: false,
+          gpsIn: null,
+          gpsOut: null
         });
       });
     }
@@ -222,7 +228,9 @@ export function AdminReports({
           timeLog: `Date: ${fmtDate(s.date)}`,
           durationMinutes: 0,
           status: s.status,
-          isOvernight: false
+          isOvernight: false,
+          gpsIn: null,
+          gpsOut: null
         });
       });
     }
@@ -260,7 +268,7 @@ export function AdminReports({
 
   // Export CSV
   const handleExportCSV = () => {
-    const headers = ["Date", "Day", "Category", "Employee", "ID", "Time Log", "Duration (mins)", "Remarks / Details", "Approval Status"];
+    const headers = ["Date", "Day", "Category", "Employee", "ID", "Time Log", "Duration (mins)", "Remarks / Details", "GPS Punch-In Location", "GPS Punch-Out Location", "Approval Status"];
     const rows = filteredData.map(item => [
       item.date,
       fmtDay(item.date),
@@ -270,6 +278,8 @@ export function AdminReports({
       item.timeLog,
       item.durationMinutes ? item.durationMinutes : "0",
       item.details,
+      item.gpsIn ? (item.gpsIn.address || `${item.gpsIn.lat}, ${item.gpsIn.lng}`) : "—",
+      item.gpsOut ? (item.gpsOut.address || `${item.gpsOut.lat}, ${item.gpsOut.lng}`) : "—",
       item.status
     ]);
 
@@ -487,6 +497,7 @@ export function AdminReports({
                   <th className="px-5 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Employee</th>
                   <th className="px-5 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Type</th>
                   <th className="px-5 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Punch Time log</th>
+                  <th className="px-5 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">GPS Location Mapping</th>
                   <th className="px-5 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Details / Remarks</th>
                   <th className="px-5 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Database Block</th>
                 </tr>
@@ -505,6 +516,46 @@ export function AdminReports({
                       <span className="text-xs font-bold font-sans text-slate-800">{item.type}</span>
                     </td>
                     <td className="px-5 py-4 font-mono text-xs whitespace-nowrap text-slate-500">{item.timeLog}</td>
+                    <td className="px-5 py-4">
+                      {item.gpsIn || item.gpsOut ? (
+                        <div className="space-y-1 text-slate-600 leading-normal max-w-sm">
+                          {item.gpsIn && (
+                            <div className="text-[11px]">
+                              <span className="text-[9px] font-bold uppercase text-emerald-600 block">📥 In GPS</span>
+                              <span className="block truncate max-w-[200px]" title={item.gpsIn.address || `${item.gpsIn.lat.toFixed(5)}, ${item.gpsIn.lng.toFixed(5)}`}>
+                                {item.gpsIn.address || `${item.gpsIn.lat.toFixed(5)}, ${item.gpsIn.lng.toFixed(5)}`}
+                              </span>
+                              <a
+                                href={`https://www.google.com/maps?q=${item.gpsIn.lat},${item.gpsIn.lng}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-indigo-600 hover:underline font-semibold font-mono text-[9px] inline-flex items-center gap-0.5 no-print"
+                              >
+                                🗺️ View Map
+                              </a>
+                            </div>
+                          )}
+                          {item.gpsOut && (
+                            <div className="text-[11px] border-t border-slate-100 pt-1 mt-1">
+                              <span className="text-[9px] font-bold uppercase text-rose-600 block">📤 Out GPS</span>
+                              <span className="block truncate max-w-[200px]" title={item.gpsOut.address || `${item.gpsOut.lat.toFixed(5)}, ${item.gpsOut.lng.toFixed(5)}`}>
+                                {item.gpsOut.address || `${item.gpsOut.lat.toFixed(5)}, ${item.gpsOut.lng.toFixed(5)}`}
+                              </span>
+                              <a
+                                href={`https://www.google.com/maps?q=${item.gpsOut.lat},${item.gpsOut.lng}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-indigo-600 hover:underline font-semibold font-mono text-[9px] inline-flex items-center gap-0.5 no-print"
+                              >
+                                🗺️ View Map
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-4 text-xs text-slate-600 max-w-xs truncate" title={item.details}>
                       {item.details || "—"}
                     </td>
