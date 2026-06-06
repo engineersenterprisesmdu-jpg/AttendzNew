@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { 
   Clock, MapPin, CheckCircle, AlertTriangle, Calendar, Clipboard, 
   RefreshCw, Award, LogOut, FileText, Compass, ChevronLeft, ChevronRight,
@@ -245,6 +245,9 @@ export function EmployeeDashboard({
     setTaskId("");
   };
 
+  // Keep track of the last selected date to differentiate between switching dates vs. realtime db synchronization
+  const lastSelectedDateRef = useRef<string>("");
+
   // Synchronize internal punch states from the global database based on selected date
   useEffect(() => {
     // Look for an unfinished record (punch-in without punch-out) for this user on the selected date
@@ -264,6 +267,7 @@ export function EmployeeDashboard({
       setGpsOut(unfinished.gpsOut || null);
       setEndNotes(unfinished.endNotes || "");
       setCrossMidnight(!!unfinished.punchOutDate && unfinished.punchOutDate !== unfinished.date);
+      lastSelectedDateRef.current = selectedDate;
     } else {
       // Check if there is a completed record for this date
       const completed = attendance.find(
@@ -280,9 +284,24 @@ export function EmployeeDashboard({
         setEndNotes(completed.endNotes || "");
         setPunchedIn(false);
         setCrossMidnight(!!completed.punchOutDate && completed.punchOutDate !== completed.date);
+        lastSelectedDateRef.current = selectedDate;
       } else {
-        // If no record exists, reset state to empty
-        resetPunchState();
+        // If no record exists in the database
+        if (selectedDate !== lastSelectedDateRef.current) {
+          // User selected a different date entirely, so reset everything including inputs
+          resetPunchState();
+          lastSelectedDateRef.current = selectedDate;
+        } else {
+          // User is on the same date and editing their draft fields (taskType & taskDesc) before punch-in.
+          // Reset only saved markers to prevent overwriting their current input forms on database/sync triggers
+          setPunchInTime(null);
+          setPunchOutTime(null);
+          setGpsIn(null);
+          setGpsOut(null);
+          setPunchedIn(false);
+          setTaskId("");
+          setEndNotes("");
+        }
       }
     }
   }, [selectedDate, attendance, user.id]);
