@@ -21,6 +21,7 @@ import {
 } from "./firebase-service";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { HARDCODED_FIREBASE_CONFIG } from "./firebase-config";
+import { uploadToSupabaseStorage, SUPABASE_URL, STORAGE_BUCKET_NAME } from "./supabase-client";
 
 import { DocsDashboard } from "./components/DocsDashboard";
 import { TestCenter } from "./components/TestCenter";
@@ -65,6 +66,7 @@ export default function App() {
   // Admin portal tab
   const [adminTab, setAdminTab] = useState("dashboard"); // dashboard, employees, assignments, masterdata, approvals, holidays, reports, tests, documentation, database
   const [showAllMobileTools, setShowAllMobileTools] = useState(false);
+  const [guideTab, setGuideTab] = useState<"firebase" | "supabase">("supabase");
 
   // Employee Form variables
   const [isEmpFormOpen, setIsEmpFormOpen] = useState(false);
@@ -90,6 +92,12 @@ export default function App() {
   const [fAadhaarFileName, setFAadhaarFileName] = useState("");
   const [fPanFile, setFPanFile] = useState<string | null>(null);
   const [fPanFileName, setFPanFileName] = useState("");
+
+  // Supabase Upload State Trackers
+  const [fAadhaarUploading, setFAadhaarUploading] = useState(false);
+  const [fPanUploading, setFPanUploading] = useState(false);
+  const [fAadhaarUploadError, setFAadhaarUploadError] = useState<string | null>(null);
+  const [fPanUploadError, setFPanUploadError] = useState<string | null>(null);
 
   const [searchEmp, setSearchEmp] = useState("");
 
@@ -454,20 +462,43 @@ export default function App() {
     setIsEmpFormOpen(false);
   };
 
-  const handleFileUpload = (type: "aadhaar" | "pan", e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (type: "aadhaar" | "pan", e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (type === "aadhaar") {
-        setFAadhaarFile(reader.result as string);
-        setFAadhaarFileName(file.name);
-      } else {
-        setFPanFile(reader.result as string);
-        setFPanFileName(file.name);
-      }
-    };
-    reader.readAsDataURL(file);
+
+    const setUploading = type === "aadhaar" ? setFAadhaarUploading : setFPanUploading;
+    const setError = type === "aadhaar" ? setFAadhaarUploadError : setFPanUploadError;
+    const setFileUrl = type === "aadhaar" ? setFAadhaarFile : setFPanFile;
+    const setFileName = type === "aadhaar" ? setFAadhaarFileName : setFPanFileName;
+
+    setUploading(true);
+    setError(null);
+
+    // Get an identifier for the folder path
+    const entityId = editEmpId || `new_profile_${Date.now()}`;
+
+    try {
+      // 1. Try to upload to Supabase Storage
+      const result = await uploadToSupabaseStorage(file, type, entityId);
+      
+      // Update state with Supabase URL
+      setFileUrl(result.publicUrl);
+      setFileName(file.name);
+      console.log(`Successfully uploaded ${type} to Supabase Storage:`, result.publicUrl);
+    } catch (err: any) {
+      console.warn("Supabase Storage Upload failed, falling back to local base64 reader:", err);
+      setError(err?.message || "Storage Upload failed. Loaded as local Base64.");
+      
+      // 2. Fallback to Local Base64 FileReader so user can STILL input files if bucket or CORS is not live yet
+      const reader = new FileReader();
+      reader.onload = () => {
+        setFileUrl(reader.result as string);
+        setFileName(file.name);
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleAssignRole = (e: React.FormEvent) => {
@@ -1145,16 +1176,91 @@ export default function App() {
                       {/* File uploads section */}
                       <div className="bg-slate-50 p-4 rounded-xl grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-200">
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 font-display">Aadhaar card index</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 font-display flex items-center justify-between">
+                            <span>Aadhaar card index</span>
+                            <span className="text-[9px] text-indigo-500 font-semibold font-mono">SUPABASE CLOUD</span>
+                          </label>
                           <input type="text" placeholder="12-digit UID" value={fAadhaar} onChange={e => setFAadhaar(e.target.value)} className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none bg-white mb-2" />
-                          <input type="file" onChange={e => handleFileUpload("aadhaar", e)} className="text-xs file:mr-3 file:py-1 file:px-2" />
-                          {fAadhaarFileName && <p className="text-[10px] text-slate-500 mt-1 font-mono">Uploaded: {fAadhaarFileName}</p>}
+                          <input type="file" onChange={e => handleFileUpload("aadhaar", e)} className="text-xs file:mr-3 file:py-1 file:px-2 block w-full cursor-pointer" disabled={fAadhaarUploading} />
+                          
+                          {fAadhaarUploading && (
+                            <div className="flex items-center gap-2 mt-2 text-indigo-600 text-xs font-semibold">
+                              <span className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>
+                              <span>Uploading to Supabase...</span>
+                            </div>
+                          )}
+
+                          {!fAadhaarUploading && fAadhaarFile && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+                              {fAadhaarFile.startsWith("http") ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold font-sans">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                  ✓ Supabase Cloud Link Stored
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-medium font-sans">
+                                  ⚠️ Local Base64 Cache Fallback
+                                </span>
+                              )}
+                              <a
+                                href={fAadhaarFile}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-indigo-600 font-bold hover:underline bg-white px-2 py-0.5 border border-slate-200 rounded"
+                              >
+                                View Live Document ↗
+                              </a>
+                            </div>
+                          )}
+                          {fAadhaarUploadError && (
+                            <p className="text-[9px] text-rose-500 mt-1.5 leading-normal font-sans">
+                              {fAadhaarUploadError} (Please confirm CORS rules & Policies for 'Attendance-files' bucket!)
+                            </p>
+                          )}
                         </div>
+                        
                         <div>
-                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 font-display">PAN card index</label>
+                          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2 font-display flex items-center justify-between">
+                            <span>PAN card index</span>
+                            <span className="text-[9px] text-indigo-500 font-semibold font-mono">SUPABASE CLOUD</span>
+                          </label>
                           <input type="text" placeholder="10-digit PAN" value={fPan} onChange={e => setFPan(e.target.value)} className="w-full text-xs px-3 py-2 border rounded-lg focus:outline-none bg-white mb-2" />
-                          <input type="file" onChange={e => handleFileUpload("pan", e)} className="text-xs file:mr-3 file:py-1 file:px-2" />
-                          {fPanFileName && <p className="text-[10px] text-slate-500 mt-1 font-mono">Uploaded: {fPanFileName}</p>}
+                          <input type="file" onChange={e => handleFileUpload("pan", e)} className="text-xs file:mr-3 file:py-1 file:px-2 block w-full cursor-pointer" disabled={fPanUploading} />
+                          
+                          {fPanUploading && (
+                            <div className="flex items-center gap-2 mt-2 text-indigo-600 text-xs font-semibold">
+                              <span className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></span>
+                              <span>Uploading to Supabase...</span>
+                            </div>
+                          )}
+
+                          {!fPanUploading && fPanFile && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+                              {fPanFile.startsWith("http") ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold font-sans">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                  ✓ Supabase Cloud Link Stored
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-medium font-sans">
+                                  ⚠️ Local Base64 Cache Fallback
+                                </span>
+                              )}
+                              <a
+                                href={fPanFile}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-indigo-600 font-bold hover:underline bg-white px-2 py-0.5 border border-slate-200 rounded"
+                              >
+                                View Live Document ↗
+                              </a>
+                            </div>
+                          )}
+                          {fPanUploadError && (
+                            <p className="text-[9px] text-rose-500 mt-1.5 leading-normal font-sans">
+                              {fPanUploadError} (Please confirm CORS rules & Policies for 'Attendance-files' bucket!)
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -1217,9 +1323,38 @@ export default function App() {
                             <td className="p-4 font-mono text-slate-500">{e.email}</td>
                             <td className="p-4 font-mono font-extrabold text-indigo-600">{e.empId}</td>
                             <td className="p-4 font-mono">{e.doj}</td>
-                            <td className="p-4 space-y-0.5">
-                              {e.aadhaar && <div className="text-[10px] font-mono text-slate-500">AADHAAR: {e.aadhaar}</div>}
-                              {e.pan && <div className="text-[10px] font-mono text-slate-500">PAN: {e.pan}</div>}
+                            <td className="p-4 space-y-1.5">
+                              {e.aadhaar && (
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="text-[10px] font-mono text-slate-600 font-semibold">AADHAAR: {e.aadhaar}</div>
+                                  {e.aadhaarFile && (
+                                    <a
+                                      href={e.aadhaarFile}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
+                                    >
+                                      📄 View Aadhaar Doc
+                                    </a>
+                                  )}
+                                </div>
+                              )}
+                              {e.pan && (
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="text-[10px] font-mono text-slate-600 font-semibold">PAN: {e.pan}</div>
+                                  {e.panFile && (
+                                    <a
+                                      href={e.panFile}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-bold hover:underline"
+                                    >
+                                      📄 View PAN Doc
+                                    </a>
+                                  )}
+                                </div>
+                              )}
+                              {!e.aadhaar && !e.pan && <span className="text-slate-400 italic text-[10px]">No credentials</span>}
                             </td>
                             <td className="p-4 text-right space-x-1 whitespace-nowrap">
                               <button
@@ -1801,20 +1936,48 @@ export default function App() {
                 </div>
 
                 <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2 font-display">
-                      <Radio className="w-5 h-5 text-indigo-600" />
-                      Firebase Cloud Integration Guide
-                    </h3>
-                    <div className="mt-3.5 bg-indigo-50/60 border border-indigo-150 rounded-xl p-3.5 text-xs text-indigo-950 font-sans leading-relaxed space-y-2.5">
-                      <div>
-                        <span className="font-bold block text-indigo-800">1. Cloud Firestore vs Realtime DB:</span>
-                        This system synchronizes using <b className="text-indigo-950 font-bold">Cloud Firestore</b>, a premium document-based storage. Do not check the "Realtime Database" tab in the Firebase Console (it will show no nodes). Look under <b className="text-indigo-700 font-bold uppercase font-mono">Firestore Database</b> to see your live collections!
-                      </div>
-                      <div className="border-t border-indigo-150 pt-2">
-                        <span className="font-bold block text-indigo-800">2. Define Firestore Rules:</span>
-                        Go to your <b className="text-indigo-950">Firebase console &gt; Firestore Database &gt; Rules</b> and publish this block to permit reads and writes:
-                        <pre className="mt-1.5 p-2 bg-slate-900 text-slate-100 text-[10px] font-mono rounded overflow-x-auto select-all leading-normal">
+                  {/* Selector tabs */}
+                  <div className="flex border-b border-slate-100 pb-1.5 gap-2">
+                    <button
+                      onClick={() => setGuideTab("supabase")}
+                      className={`px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer ${
+                        guideTab === "supabase"
+                          ? "bg-indigo-600 text-white shadow"
+                          : "text-slate-600 hover:bg-slate-50 border border-transparent"
+                      }`}
+                    >
+                      ⚡ Supabase Storage (Files)
+                    </button>
+                    <button
+                      onClick={() => setGuideTab("firebase")}
+                      className={`px-3 py-1.5 text-xs font-bold font-sans rounded-lg transition-all cursor-pointer ${
+                        guideTab === "firebase"
+                          ? "bg-indigo-600 text-white shadow"
+                          : "text-slate-600 hover:bg-slate-50 border border-transparent"
+                      }`}
+                    >
+                      🔥 Firebase Database (Records)
+                    </button>
+                  </div>
+
+                  {guideTab === "firebase" ? (
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2 font-display">
+                        <Radio className="w-5 h-5 text-indigo-600 animate-pulse" />
+                        Firebase Cloud Integration Guide
+                      </h3>
+                      <div className="mt-3.5 bg-indigo-50/60 border border-indigo-150 rounded-xl p-3.5 text-xs text-indigo-950 font-sans leading-relaxed space-y-2.5">
+                        <div className="bg-amber-100/80 border border-amber-300 text-amber-900 rounded-lg p-2.5 mb-2 font-semibold">
+                          ⚠️ IMPORTANT: Avoid "Realtime Database". Go to "Firestore Database" (Orange icon) instead!
+                        </div>
+                        <div>
+                          <span className="font-bold block text-indigo-800">1. Cloud Firestore vs Realtime DB:</span>
+                          This system synchronizes using <b className="text-indigo-950 font-bold">Cloud Firestore</b>. Under no circumstances paste these rules in the "Realtime Database" tab (which is what failed in the screenshot). Click the <b className="text-indigo-700 font-bold uppercase font-mono">Firestore Database</b> menu item on the left, click its <b className="font-bold">Rules</b> tab, and paste there.
+                        </div>
+                        <div className="border-t border-indigo-150 pt-2">
+                          <span className="font-bold block text-indigo-800">2. Define Firestore Rules:</span>
+                          Go to your <b className="text-indigo-950">Firebase console &gt; Firestore Database (not Realtime Database!) &gt; Rules</b> and publish this block to permit reads and writes:
+                          <pre className="mt-1.5 p-2 bg-slate-900 text-slate-100 text-[10px] font-mono rounded overflow-x-auto select-all leading-normal">
 {`rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -1823,14 +1986,65 @@ service cloud.firestore {
     }
   }
 }`}
-                        </pre>
-                      </div>
-                      <div className="border-t border-indigo-150 pt-2">
-                        <span className="font-bold block text-indigo-800">3. Activate Permanent Multi-Browser Sync:</span>
-                        To secure connections across all employee browsers and phone devices instantly without having to re-type keys: copy your credentials directly into the project's source file <code className="bg-white border border-indigo-200 px-1 py-0.5 rounded font-mono font-bold text-indigo-700">src/firebase-config.ts</code>!
+                          </pre>
+                        </div>
+                        <div className="border-t border-indigo-150 pt-2">
+                          <span className="font-bold block text-indigo-800">3. Activate Permanent Multi-Browser Sync:</span>
+                          To secure connections across all employee browsers and phone devices instantly without having to re-type keys: copy your credentials directly into the project's source file <code className="bg-white border border-indigo-200 px-1 py-0.5 rounded font-mono font-bold text-indigo-700">src/firebase-config.ts</code>!
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-2 font-display">
+                        <Database className="w-5 h-5 text-indigo-600" />
+                        Supabase Storage Integration Guide
+                      </h3>
+                      <div className="mt-3.5 bg-indigo-50/60 border border-indigo-150 rounded-xl p-3.5 text-xs text-indigo-950 font-sans leading-relaxed space-y-3">
+                        <div className="bg-indigo-600 text-white rounded-lg p-3 text-xs leading-normal">
+                          <span className="font-extrabold block mb-0.5">🚀 Supabase Storage Loaded Inline!</span>
+                          The app is pre-configured to upload Aadhaar and PAN documents to your bucket <span className="font-mono bg-indigo-800 px-1 rounded">Attendance-files</span> on Supabase.
+                        </div>
+
+                        <div>
+                          <span className="font-bold block text-indigo-800 font-display">Step 1: Create the Storage Bucket</span>
+                          <p className="text-slate-600 text-[11px] mt-0.5">
+                            Open your Supabase console at <a href={SUPABASE_URL} target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-bold hover:underline">Supabase Project Dashboard ↗</a>, go to the <b>Storage</b> option on the left side, click <b>New bucket</b>, and name it exactly:
+                          </p>
+                          <code className="block mt-1 p-1.5 bg-white border rounded font-mono text-[10px] font-bold text-center text-indigo-800">
+                            {STORAGE_BUCKET_NAME}
+                          </code>
+                          <p className="text-slate-600 text-[11px] mt-1.5 font-sans font-medium">
+                            🚨 <b>Crucial:</b> Toggle the <b className="text-indigo-800">"Public bucket"</b> switch to <b>ON</b>.
+                          </p>
+                        </div>
+
+                        <div className="border-t border-indigo-150 pt-2.5">
+                          <span className="font-bold block text-indigo-800 font-display">Step 2: Assign Access Policies</span>
+                          <p className="text-slate-600 text-[11px] mt-0.5">
+                            To allow uploads and downloads, you must declare access policies. Click on <b>Storage &gt; Policies</b>, select your bucket, and click <b>New Policy</b>. Use the <b>SQL Editor</b> inside Supabase to run this code block to open permissions:
+                          </p>
+                          <pre className="mt-2 p-2 bg-slate-900 text-slate-100 text-[9px] font-mono rounded overflow-x-auto select-all leading-normal">
+{`--- 1. Allow everyone to view public objects inside bucket
+CREATE POLICY "Public Retrieve objects"
+ON storage.objects FOR SELECT
+USING (bucket_id = '${STORAGE_BUCKET_NAME}');
+
+--- 2. Allow public inserts for uploading docs
+CREATE POLICY "Public Insert objects"
+ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = '${STORAGE_BUCKET_NAME}');`}
+                          </pre>
+                        </div>
+
+                        <div className="border-t border-indigo-150 pt-2.5 text-[10px] bg-white p-2 border rounded-lg text-slate-600 space-y-1">
+                          <span className="font-bold block text-slate-800">Supabase Endpoints Configured:</span>
+                          <div>• URL: <span className="font-mono bg-slate-100 text-slate-700 px-1 rounded">{SUPABASE_URL}</span></div>
+                          <div>• Bucket Name: <span className="font-mono bg-slate-100 text-slate-700 px-1 rounded">{STORAGE_BUCKET_NAME}</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="border-t border-slate-100 pt-4">
                     <h3 className="text-xs font-bold text-rose-500 flex items-center gap-2 pb-2 font-display">
