@@ -150,6 +150,8 @@ export default function App() {
     return !!(apikey && projid && appid);
   });
 
+  const cloudSyncActive = dbMode === "supabase" || (dbMode === "firebase" && fbConfigured);
+
   // Local Masking Overrides to intercept all existing Firestore calls dynamically
   const firestoreSetDoc = async (collectionPath: string, docId: string, data: any) => {
     if (dbMode === "supabase") {
@@ -217,17 +219,22 @@ export default function App() {
     const setupSbListener = (collectionName: string, setState: (data: any) => void, currentLocalState: any = []) => {
       try {
         const sub = supabaseListenCollection(collectionName, (list) => {
-          // If Supabase is empty, seed with the current local state
-          if (list.length === 0 && currentLocalState && currentLocalState.length > 0) {
-            console.log(`[Supabase Sync] ${collectionName} was empty. Auto-seeding local index to Supabase...`);
+          const seededKey = `attendx_seeded_supabase_${collectionName}`;
+          const alreadySeeded = localStorage.getItem(seededKey) === "true";
+
+          // If Supabase is empty, and we haven't seeded before, seed with active local state
+          if (list.length === 0 && !alreadySeeded && currentLocalState && currentLocalState.length > 0) {
+            console.log(`[Supabase Sync] ${collectionName} is empty. Seeding local dataset to Supabase for first-time use...`);
             currentLocalState.forEach((item: any) => {
               const docId = item.id || item.empId;
               if (docId) {
                 supabaseSetDoc(collectionName, docId, item);
               }
             });
+            localStorage.setItem(seededKey, "true");
           } else {
             console.log(`[Supabase Sync] Fetched ${list.length} docs for '${collectionName}'`);
+            localStorage.setItem(seededKey, "true");
             setState(list);
           }
         });
@@ -248,15 +255,18 @@ export default function App() {
     // Sync Global Settings
     try {
       const subSettings = supabaseListenCollection("settings", (list) => {
+        const seededKey = "attendx_seeded_supabase_settings";
+        const alreadySeeded = localStorage.getItem(seededKey) === "true";
         const globalConfig = list.find(item => item.id === "global" || item.departments);
         if (globalConfig) {
+          localStorage.setItem(seededKey, "true");
           if (globalConfig.adminId) setAdminId(globalConfig.adminId);
           if (globalConfig.adminPassword) setAdminPassword(globalConfig.adminPassword);
           if (globalConfig.departments) setDepartments(globalConfig.departments);
           if (globalConfig.designations) setDesignations(globalConfig.designations);
           if (globalConfig.leaveTypes) setLeaveTypes(globalConfig.leaveTypes);
           if (globalConfig.taskTypes) setTaskTypes(globalConfig.taskTypes);
-        } else {
+        } else if (!alreadySeeded) {
           // Seed settings to Supabase
           supabaseSetDoc("settings", "global", {
             id: "global",
@@ -267,6 +277,7 @@ export default function App() {
             leaveTypes,
             taskTypes
           });
+          localStorage.setItem(seededKey, "true");
         }
       });
       unsubscribes.push(subSettings.unsubscribe);
@@ -530,7 +541,7 @@ export default function App() {
             panFile: fPanFile,
             panFileName: fPanFileName
           };
-          if (fbConfigured) {
+          if (cloudSyncActive) {
             firestoreSetDoc("employees", updated.id, updated);
           }
           return updated;
@@ -578,7 +589,7 @@ export default function App() {
       };
       setRoles(prev => [...prev, standardRole]);
 
-      if (fbConfigured) {
+      if (cloudSyncActive) {
         firestoreSetDoc("employees", newEmp.id, newEmp);
         firestoreSetDoc("roles", standardRole.empId, standardRole);
       }
@@ -647,7 +658,7 @@ export default function App() {
       }
     });
 
-    if (fbConfigured) {
+    if (cloudSyncActive) {
       firestoreSetDoc("roles", selRoleEmp, updatedAssignment);
     }
     alert("Employee department role assignments cataloged successfully! ✅");
@@ -726,7 +737,7 @@ export default function App() {
       setAttendance(prev => prev.map(a => {
         if (a.id === id) {
           const updated = { ...a, approval: "Approved", approvedBy };
-          if (fbConfigured) firestoreSetDoc("attendance", id, updated);
+          if (cloudSyncActive) firestoreSetDoc("attendance", id, updated);
           return updated;
         }
         return a;
@@ -735,7 +746,7 @@ export default function App() {
       setLeaves(prev => prev.map(l => {
         if (l.id === id) {
           const updated = { ...l, status: "Approved", approvedBy };
-          if (fbConfigured) firestoreSetDoc("leaves", id, updated);
+          if (cloudSyncActive) firestoreSetDoc("leaves", id, updated);
           return updated;
         }
         return l;
@@ -744,7 +755,7 @@ export default function App() {
       setCoffs(prev => prev.map(c => {
         if (c.id === id) {
           const updated = { ...c, status: "Approved", approvedBy };
-          if (fbConfigured) firestoreSetDoc("coffs", id, updated);
+          if (cloudSyncActive) firestoreSetDoc("coffs", id, updated);
           return updated;
         }
         return c;
@@ -753,7 +764,7 @@ export default function App() {
       setSpecialDuties(prev => prev.map(s => {
         if (s.id === id) {
           const updated = { ...s, status: "Approved", approvedBy };
-          if (fbConfigured) firestoreSetDoc("specialDuties", id, updated);
+          if (cloudSyncActive) firestoreSetDoc("specialDuties", id, updated);
           return updated;
         }
         return s;
@@ -776,7 +787,7 @@ export default function App() {
       setAttendance(prev => prev.map(a => {
         if (a.id === id) {
           const updated = { ...a, approval: statusVal, rejectReason: rejectReasonPrompt };
-          if (fbConfigured) firestoreSetDoc("attendance", id, updated);
+          if (cloudSyncActive) firestoreSetDoc("attendance", id, updated);
           return updated;
         }
         return a;
@@ -785,7 +796,7 @@ export default function App() {
       setLeaves(prev => prev.map(l => {
         if (l.id === id) {
           const updated = { ...l, status: statusVal, rejectReason: rejectReasonPrompt };
-          if (fbConfigured) firestoreSetDoc("leaves", id, updated);
+          if (cloudSyncActive) firestoreSetDoc("leaves", id, updated);
           return updated;
         }
         return l;
@@ -794,7 +805,7 @@ export default function App() {
       setCoffs(prev => prev.map(c => {
         if (c.id === id) {
           const updated = { ...c, status: statusVal, rejectReason: rejectReasonPrompt };
-          if (fbConfigured) firestoreSetDoc("coffs", id, updated);
+          if (cloudSyncActive) firestoreSetDoc("coffs", id, updated);
           return updated;
         }
         return c;
@@ -803,7 +814,7 @@ export default function App() {
       setSpecialDuties(prev => prev.map(s => {
         if (s.id === id) {
           const updated = { ...s, status: statusVal, rejectReason: rejectReasonPrompt };
-          if (fbConfigured) firestoreSetDoc("specialDuties", id, updated);
+          if (cloudSyncActive) firestoreSetDoc("specialDuties", id, updated);
           return updated;
         }
         return s;
@@ -825,7 +836,7 @@ export default function App() {
       }
       return [...prev, rec];
     });
-    if (fbConfigured) {
+    if (cloudSyncActive) {
       firestoreSetDoc("attendance", rec.id, rec);
     }
   };
@@ -837,7 +848,7 @@ export default function App() {
       }
       return [...prev, rec];
     });
-    if (fbConfigured) {
+    if (cloudSyncActive) {
       firestoreSetDoc("leaves", rec.id, rec);
     }
   };
@@ -849,7 +860,7 @@ export default function App() {
       }
       return [...prev, rec];
     });
-    if (fbConfigured) {
+    if (cloudSyncActive) {
       firestoreSetDoc("coffs", rec.id, rec);
     }
   };
@@ -861,7 +872,7 @@ export default function App() {
       }
       return [...prev, rec];
     });
-    if (fbConfigured) {
+    if (cloudSyncActive) {
       firestoreSetDoc("specialDuties", rec.id, rec);
     }
   };
@@ -877,7 +888,7 @@ export default function App() {
       setSpecialDuties(prev => prev.filter(x => x.id !== id));
     }
 
-    if (fbConfigured) {
+    if (cloudSyncActive) {
       const collName = type === "attendance" ? "attendance" : type === "leave" ? "leaves" : type === "coff" ? "coffs" : "specialDuties";
       firestoreDeleteDoc(collName, id);
     }
@@ -1493,7 +1504,7 @@ export default function App() {
                                 onClick={() => {
                                   if (confirm(`Are you sure you want to delete ${e.firstName}?`)) {
                                     setEmployees(prev => prev.filter(emp => emp.id !== e.id));
-                                    if (fbConfigured) {
+                                    if (cloudSyncActive) {
                                       firestoreDeleteDoc("employees", e.id);
                                       firestoreDeleteDoc("roles", e.id);
                                     }
@@ -1641,7 +1652,7 @@ export default function App() {
                       if (!newDept.trim()) return;
                       const updated = [...departments, newDept.trim()];
                       setDepartments(updated);
-                      if (fbConfigured) {
+                      if (cloudSyncActive) {
                         firestoreSetDoc("settings", "global", {
                           adminId,
                           adminPassword,
@@ -1674,7 +1685,7 @@ export default function App() {
                       if (!newDesig.trim()) return;
                       const updated = [...designations, newDesig.trim()];
                       setDesignations(updated);
-                      if (fbConfigured) {
+                      if (cloudSyncActive) {
                         firestoreSetDoc("settings", "global", {
                           adminId,
                           adminPassword,
@@ -1954,7 +1965,7 @@ export default function App() {
                           type: newHolType
                         };
                         setHolidays(prev => [...prev, nHol]);
-                        if (fbConfigured) {
+                        if (cloudSyncActive) {
                           firestoreSetDoc("holidays", nHol.id, nHol);
                         }
                         setNewHolDate("");
@@ -1982,7 +1993,7 @@ export default function App() {
                           onClick={() => {
                             if (confirm(`Remove holiday ${h.name}?`)) {
                               setHolidays(prev => prev.filter(x => x.id !== h.id));
-                              if (fbConfigured) {
+                              if (cloudSyncActive) {
                                 firestoreDeleteDoc("holidays", h.id);
                               }
                             }
