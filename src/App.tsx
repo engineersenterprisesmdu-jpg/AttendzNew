@@ -131,7 +131,7 @@ export default function App() {
 
   // Unified Database Router Settings
   const [dbMode, setDbMode] = useState<"local" | "firebase" | "supabase">(() => {
-    return (localStorage.getItem("attendx_db_mode") as any) || "supabase";
+    return (localStorage.getItem("attendx_db_mode") as any) || "firebase";
   });
   
   // Storage bucket and sync state configurations
@@ -139,14 +139,14 @@ export default function App() {
   const [sbCheckingTable, setSbCheckingTable] = useState(false);
 
   // Live Firebase connection setup variables
-  const [fbApiKey, setFbApiKey] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_apikey", HARDCODED_FIREBASE_CONFIG.apiKey));
-  const [fbProjId, setFbProjId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_projid", HARDCODED_FIREBASE_CONFIG.projectId));
-  const [fbAppId, setFbAppId] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_appid", HARDCODED_FIREBASE_CONFIG.appId));
-  const [fbDbUrl, setFbDbUrl] = useState(() => syncStorage.getLocalStorage<string>("attendx_fb_dburl", HARDCODED_FIREBASE_CONFIG.databaseURL));
+  const [fbApiKey, setFbApiKey] = useState(() => HARDCODED_FIREBASE_CONFIG.apiKey || syncStorage.getLocalStorage<string>("attendx_fb_apikey", ""));
+  const [fbProjId, setFbProjId] = useState(() => HARDCODED_FIREBASE_CONFIG.projectId || syncStorage.getLocalStorage<string>("attendx_fb_projid", ""));
+  const [fbAppId, setFbAppId] = useState(() => HARDCODED_FIREBASE_CONFIG.appId || syncStorage.getLocalStorage<string>("attendx_fb_appid", ""));
+  const [fbDbUrl, setFbDbUrl] = useState(() => HARDCODED_FIREBASE_CONFIG.databaseURL || syncStorage.getLocalStorage<string>("attendx_fb_dburl", ""));
   const [fbConfigured, setFbConfigured] = useState(() => {
-    const apikey = localStorage.getItem("attendx_fb_apikey") || HARDCODED_FIREBASE_CONFIG.apiKey;
-    const projid = localStorage.getItem("attendx_fb_projid") || HARDCODED_FIREBASE_CONFIG.projectId;
-    const appid = localStorage.getItem("attendx_fb_appid") || HARDCODED_FIREBASE_CONFIG.appId;
+    const apikey = HARDCODED_FIREBASE_CONFIG.apiKey || localStorage.getItem("attendx_fb_apikey");
+    const projid = HARDCODED_FIREBASE_CONFIG.projectId || localStorage.getItem("attendx_fb_projid");
+    const appid = HARDCODED_FIREBASE_CONFIG.appId || localStorage.getItem("attendx_fb_appid");
     return !!(apikey && projid && appid);
   });
 

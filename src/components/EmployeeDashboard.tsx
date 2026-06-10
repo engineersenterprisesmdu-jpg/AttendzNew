@@ -249,62 +249,71 @@ export function EmployeeDashboard({
   const lastSelectedDateRef = useRef<string>("");
 
   // Synchronize internal punch states from the global database based on selected date
-  useEffect(() => {
-    // Look for an unfinished record (punch-in without punch-out) for this user on the selected date
-    const unfinished = attendance.find(
-      a => a.empId === user.id && a.date === selectedDate && !a.punchOutTime
-    );
+  const dbRecord = useMemo(() => {
+    return attendance.find(a => a.empId === user.id && a.date === selectedDate);
+  }, [attendance, user.id, selectedDate]);
 
-    if (unfinished) {
-      setTaskType(unfinished.taskType || "");
-      setTaskDesc(unfinished.description || "");
-      setPunchInTime(unfinished.punchInTime || null);
-      setGpsIn(unfinished.gpsIn || null);
-      setTaskId(unfinished.taskId || "");
-      setPunchedIn(true);
-      
-      setPunchOutTime(unfinished.punchOutTime || null);
-      setGpsOut(unfinished.gpsOut || null);
-      setEndNotes(unfinished.endNotes || "");
-      setCrossMidnight(!!unfinished.punchOutDate && unfinished.punchOutDate !== unfinished.date);
-      lastSelectedDateRef.current = selectedDate;
-    } else {
-      // Check if there is a completed record for this date
-      const completed = attendance.find(
-        a => a.empId === user.id && a.date === selectedDate && a.punchInTime && a.punchOutTime
-      );
-      if (completed) {
-        setTaskType(completed.taskType || "");
-        setTaskDesc(completed.description || "");
-        setPunchInTime(completed.punchInTime || null);
-        setPunchOutTime(completed.punchOutTime || null);
-        setGpsIn(completed.gpsIn || null);
-        setGpsOut(completed.gpsOut || null);
-        setTaskId(completed.taskId || "");
-        setEndNotes(completed.endNotes || "");
-        setPunchedIn(false);
-        setCrossMidnight(!!completed.punchOutDate && completed.punchOutDate !== completed.date);
+  const recordKey = dbRecord 
+    ? `${dbRecord.id}_${dbRecord.punchInTime || ""}_${dbRecord.punchOutTime || ""}_${dbRecord.approval || ""}` 
+    : "none";
+
+  useEffect(() => {
+    if (dbRecord) {
+      const unfinished = !dbRecord.punchOutTime;
+      if (unfinished) {
+        setTaskType(dbRecord.taskType || "");
+        setTaskDesc(dbRecord.description || "");
+        setPunchInTime(dbRecord.punchInTime || null);
+        setGpsIn(dbRecord.gpsIn || null);
+        setTaskId(dbRecord.taskId || "");
+        setPunchedIn(true);
+        
+        // Preserve local drafts for punchOutTime, gpsOut, and endNotes if they are set locally 
+        // but are empty or null in the database.
+        if (dbRecord.punchOutTime) {
+          setPunchOutTime(dbRecord.punchOutTime);
+        }
+        if (dbRecord.gpsOut) {
+          setGpsOut(dbRecord.gpsOut);
+        }
+        if (dbRecord.endNotes) {
+          setEndNotes(dbRecord.endNotes);
+        }
+        setCrossMidnight(!!dbRecord.punchOutDate && dbRecord.punchOutDate !== dbRecord.date);
         lastSelectedDateRef.current = selectedDate;
       } else {
-        // If no record exists in the database
-        if (selectedDate !== lastSelectedDateRef.current) {
-          // User selected a different date entirely, so reset everything including inputs
-          resetPunchState();
-          lastSelectedDateRef.current = selectedDate;
-        } else {
-          // User is on the same date and editing their draft fields (taskType & taskDesc) before punch-in.
-          // Reset only saved markers to prevent overwriting their current input forms on database/sync triggers
-          setPunchInTime(null);
-          setPunchOutTime(null);
-          setGpsIn(null);
-          setGpsOut(null);
-          setPunchedIn(false);
-          setTaskId("");
-          setEndNotes("");
-        }
+        // Completed record
+        setTaskType(dbRecord.taskType || "");
+        setTaskDesc(dbRecord.description || "");
+        setPunchInTime(dbRecord.punchInTime || null);
+        setPunchOutTime(dbRecord.punchOutTime || null);
+        setGpsIn(dbRecord.gpsIn || null);
+        setGpsOut(dbRecord.gpsOut || null);
+        setTaskId(dbRecord.taskId || "");
+        setEndNotes(dbRecord.endNotes || "");
+        setPunchedIn(false);
+        setCrossMidnight(!!dbRecord.punchOutDate && dbRecord.punchOutDate !== dbRecord.date);
+        lastSelectedDateRef.current = selectedDate;
+      }
+    } else {
+      // If no record exists in the database
+      if (selectedDate !== lastSelectedDateRef.current) {
+        // User selected a different date entirely, so reset everything including inputs
+        resetPunchState();
+        lastSelectedDateRef.current = selectedDate;
+      } else {
+        // User is on the same date and editing their draft fields (taskType & taskDesc) before punch-in.
+        // Reset only saved markers to prevent overwriting their current input forms on database/sync triggers
+        setPunchInTime(null);
+        setPunchOutTime(null);
+        setGpsIn(null);
+        setGpsOut(null);
+        setPunchedIn(false);
+        setTaskId("");
+        setEndNotes("");
       }
     }
-  }, [selectedDate, attendance, user.id]);
+  }, [selectedDate, user.id, recordKey]);
 
   // Helpers
   const formatTime12 = (date: Date) => {
@@ -454,32 +463,41 @@ export function EmployeeDashboard({
         const gpsObj = { lat: 13.0827, lng: 80.2707, address: "GPS Timeout - Coordinates Unavailable", accuracy: 0 };
         executePunchIn(gpsObj);
       }
-    }, 3000);
+    }, 15000);
 
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallbackTimeout);
-        const { latitude, longitude, accuracy } = pos.coords;
-        try {
-          const address = await getAddress(latitude, longitude);
-          const gpsObj = { lat: latitude, lng: longitude, address, accuracy };
-          executePunchIn(gpsObj);
-        } catch {
-          const gpsObj = { lat: latitude, lng: longitude, address: "Address lookup failed", accuracy };
-          executePunchIn(gpsObj);
-        }
-      },
-      () => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallbackTimeout);
-        const gpsObj = { lat: 13.0827, lng: 80.2707, address: "GPS Authorization denied - Coordinates Unavailable", accuracy: 0 };
-        executePunchIn(gpsObj);
-      },
-      { enableHighAccuracy: true, timeout: 3000 }
-    );
+    const startGeoQuery = (highAccuracy: boolean) => {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(fallbackTimeout);
+          const { latitude, longitude, accuracy } = pos.coords;
+          try {
+            const address = await getAddress(latitude, longitude);
+            const gpsObj = { lat: latitude, lng: longitude, address, accuracy };
+            executePunchIn(gpsObj);
+          } catch {
+            const gpsObj = { lat: latitude, lng: longitude, address: "Address lookup failed", accuracy };
+            executePunchIn(gpsObj);
+          }
+        },
+        () => {
+          if (highAccuracy && !resolved) {
+            console.log("High accuracy GPS failed; retrying with standard accuracy triangulation...");
+            startGeoQuery(false);
+          } else {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(fallbackTimeout);
+            const gpsObj = { lat: 13.0827, lng: 80.2707, address: "GPS Authorization denied - Coordinates Unavailable", accuracy: 0 };
+            executePunchIn(gpsObj);
+          }
+        },
+        { enableHighAccuracy: highAccuracy, timeout: highAccuracy ? 6000 : 10000, maximumAge: 30000 }
+      );
+    };
+
+    startGeoQuery(true);
   };
 
   const triggerPunchOut = () => {
@@ -509,32 +527,41 @@ export function EmployeeDashboard({
         const gpsObj = { lat: 13.0827, lng: 80.2707, address: "GPS Timeout - Coordinates Unavailable", accuracy: 0 };
         executePunchOut(gpsObj);
       }
-    }, 3000);
+    }, 15000);
 
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallbackTimeout);
-        const { latitude, longitude, accuracy } = pos.coords;
-        try {
-          const address = await getAddress(latitude, longitude);
-          const gpsObj = { lat: latitude, lng: longitude, address, accuracy };
-          executePunchOut(gpsObj);
-        } catch {
-          const gpsObj = { lat: latitude, lng: longitude, address: "Address lookup failed", accuracy };
-          executePunchOut(gpsObj);
-        }
-      },
-      () => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(fallbackTimeout);
-        const gpsObj = { lat: 13.0827, lng: 80.2707, address: "GPS Authorization denied - Coordinates Unavailable", accuracy: 0 };
-        executePunchOut(gpsObj);
-      },
-      { enableHighAccuracy: true, timeout: 3000 }
-    );
+    const startGeoQuery = (highAccuracy: boolean) => {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(fallbackTimeout);
+          const { latitude, longitude, accuracy } = pos.coords;
+          try {
+            const address = await getAddress(latitude, longitude);
+            const gpsObj = { lat: latitude, lng: longitude, address, accuracy };
+            executePunchOut(gpsObj);
+          } catch {
+            const gpsObj = { lat: latitude, lng: longitude, address: "Address lookup failed", accuracy };
+            executePunchOut(gpsObj);
+          }
+        },
+        () => {
+          if (highAccuracy && !resolved) {
+            console.log("High accuracy GPS failed; retrying with standard accuracy triangulation...");
+            startGeoQuery(false);
+          } else {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(fallbackTimeout);
+            const gpsObj = { lat: 13.0827, lng: 80.2707, address: "GPS Authorization denied - Coordinates Unavailable", accuracy: 0 };
+            executePunchOut(gpsObj);
+          }
+        },
+        { enableHighAccuracy: highAccuracy, timeout: highAccuracy ? 6000 : 10000, maximumAge: 30000 }
+      );
+    };
+
+    startGeoQuery(true);
   };
 
   // Submit complete attendance record to App state
