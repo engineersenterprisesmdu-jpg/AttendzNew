@@ -149,6 +149,7 @@ export default function App() {
     const appid = HARDCODED_FIREBASE_CONFIG.appId || localStorage.getItem("attendx_fb_appid");
     return !!(apikey && projid && appid);
   });
+  const [firebaseInitialized, setFirebaseInitialized] = useState(false);
 
   const cloudSyncActive = dbMode === "supabase" || (dbMode === "firebase" && fbConfigured);
 
@@ -205,6 +206,7 @@ export default function App() {
           storageBucket: `${fbProjId}.appspot.com`
         });
         setFbConfigured(true);
+        setFirebaseInitialized(true);
         console.log("AttendX Active Firebase coupling integrated successfully.");
       } catch (err) {
         console.error("Firebase dynamic coupling mismatch error:", err);
@@ -320,8 +322,11 @@ export default function App() {
             list.push({ ...doc.data() });
           });
           
+          const seededKey = `attendx_seeded_firebase_${collectionName}`;
+          const alreadySeeded = localStorage.getItem(seededKey) === "true";
+
           // Seed rule: If Firestore database is empty (e.g. freshly created) but local state has items, sync them to cloud!
-          if (snapshot.empty && currentLocalState && currentLocalState.length > 0) {
+          if (snapshot.empty && !alreadySeeded && currentLocalState && currentLocalState.length > 0) {
             console.log(`Firestore collection ${collectionName} was empty. Auto-seeding local index...`);
             currentLocalState.forEach((item: any) => {
               const docId = item.id || item.empId;
@@ -329,8 +334,10 @@ export default function App() {
                 originalFirestoreSetDoc(collectionName, docId, item);
               }
             });
+            localStorage.setItem(seededKey, "true");
           } else {
             console.log(`Synced ${list.length} docs from ${collectionName}`);
+            localStorage.setItem(seededKey, "true");
             setState(list);
           }
         }, (error) => {
@@ -354,15 +361,19 @@ export default function App() {
     try {
       const settingsRef = doc(db, "settings", "global");
       const unsubSettings = onSnapshot(settingsRef, (snapshot) => {
+        const seededKey = "attendx_seeded_firebase_settings";
+        const alreadySeeded = localStorage.getItem(seededKey) === "true";
+
         if (snapshot.exists()) {
           const data = snapshot.data();
+          localStorage.setItem(seededKey, "true");
           if (data.adminId) setAdminId(data.adminId);
           if (data.adminPassword) setAdminPassword(data.adminPassword);
           if (data.departments) setDepartments(data.departments);
           if (data.designations) setDesignations(data.designations);
           if (data.leaveTypes) setLeaveTypes(data.leaveTypes);
           if (data.taskTypes) setTaskTypes(data.taskTypes);
-        } else {
+        } else if (!alreadySeeded) {
           // Seed settings to cloud
           originalFirestoreSetDoc("settings", "global", {
             adminId,
@@ -372,6 +383,7 @@ export default function App() {
             leaveTypes,
             taskTypes
           });
+          localStorage.setItem(seededKey, "true");
         }
       }, (error) => {
         handleFirestoreError(error, OperationType.GET, "settings/global");
@@ -384,7 +396,7 @@ export default function App() {
     return () => {
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [dbMode, fbConfigured]);
+  }, [dbMode, fbConfigured, firebaseInitialized]);
 
   // -------------------------------------------------------------
   // SYNCHRONIZATION EFFECT WRAPPER
@@ -705,6 +717,7 @@ export default function App() {
         storageBucket: `${cleanProjId}.appspot.com`
       });
       setFbConfigured(true);
+      setFirebaseInitialized(true);
       alert("Firebase Connection Synced. Active Cloud Run parameters live! ✅");
     } catch (err) {
       console.error("Firebase startup synchronization mismatch:", err);
@@ -2360,12 +2373,12 @@ WITH CHECK (bucket_id = '${STORAGE_BUCKET_NAME}');`}
                           ⚠️ IMPORTANT: Avoid "Realtime Database". Go to "Firestore Database" (Orange icon) instead!
                         </div>
                         <div>
-                          <span className="font-bold block text-indigo-8002">1. Cloud Firestore vs Realtime DB:</span>
+                          <span className="font-bold block text-indigo-800">1. Cloud Firestore vs Realtime DB:</span>
                           This system synchronizes using <b className="text-indigo-950 font-bold">Cloud Firestore</b>. Under no circumstances paste these rules in the "Realtime Database" tab. Click the <b className="text-indigo-700 font-bold uppercase font-mono">Firestore Database</b> menu item on the left, click its <b className="font-bold">Rules</b> tab, and paste there.
                         </div>
                         <div className="border-t border-indigo-150 pt-2">
                           <span className="font-bold block text-indigo-800">2. Define Firestore Rules:</span>
-                          Go to your <b className="text-indigo-950">Firebase console &gt; Firestore Database (not Realtime Database!) &gt; Rules</b> and publish this block to permit reads and writes:
+                          Go to your <b className="text-indigo-950">Firebase console &gt; Firestore Database (not Realtime Database!) &gt; Rules</b>, hit Edit Rules, paste this block, and click <b className="text-indigo-950 font-bold">Publish</b>:
                           <pre className="mt-1.5 p-2 bg-slate-900 text-slate-100 text-[10px] font-mono rounded overflow-x-auto select-all leading-normal">
 {`rules_version = '2';
 service cloud.firestore {

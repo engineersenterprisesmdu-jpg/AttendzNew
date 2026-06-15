@@ -1,55 +1,8 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper to validate document IDs
-    function isValidId(id) {
-       return id is string && id.size() <= 128;
-    }
-
-    // 1. Employees profile collection
-    match /employees/{employeeId} {
-      allow read, write: if isValidId(employeeId);
-    }
-
-    // 2. Roles mapping
-    match /roles/{employeeId} {
-      allow read, write: if isValidId(employeeId);
-    }
-
-    // 3. Attendance collection
-    match /attendance/{attendanceId} {
-      allow read, write: if isValidId(attendanceId);
-    }
-
-    // 4. Leaves applications
-    match /leaves/{leaveId} {
-      allow read, write: if isValidId(leaveId);
-    }
-
-    // 5. Compensatory Offs (Coffs)
-    match /coffs/{coffId} {
-      allow read, write: if isValidId(coffId);
-    }
-
-    // 6. Special Duties
-    match /specialDuties/{spId} {
-      allow read, write: if isValidId(spId);
-    }
-
-    // 7. Holidays list
-    match /holidays/{holidayId} {
-      allow read, write: if isValidId(holidayId);
-    }
-
-    // 8. Global Settings document
-    match /settings/{docName} {
-      allow read, write: if isValidId(docName);
-    }
-    
-    // Default fallback deny
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if true;
     }
   }
 }
