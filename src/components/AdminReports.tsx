@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Printer, Download, Search, Calendar, Users, AlertCircle, Clock } from "lucide-react";
-import { Employee, Attendance, Leave, Coff, SpecialDuty, Holiday } from "../types";
+import { Employee, Attendance, Leave, Coff, SpecialDuty, Holiday, normalizeToYYYYMMDD } from "../types";
 
 function parseTimeToHourMin(timeStr: string | null | undefined): { h: number; m: number } | null {
   if (!timeStr) return null;
@@ -98,6 +98,7 @@ interface AdminReportsProps {
   coffs: Coff[];
   specialDuties: SpecialDuty[];
   holidays: Holiday[];
+  authWorkingHours?: number;
 }
 
 export function AdminReports({
@@ -106,7 +107,8 @@ export function AdminReports({
   leaves,
   coffs,
   specialDuties,
-  holidays
+  holidays,
+  authWorkingHours = 8
 }: AdminReportsProps) {
   // Temporary input states
   const [selectedEmp, setSelectedEmp] = useState("all");
@@ -116,6 +118,7 @@ export function AdminReports({
   });
   const [toDate, setToDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [subType, setSubType] = useState("all");
+  const [summaryUnit, setSummaryUnit] = useState<"hours" | "days" | "both">("both");
 
   // Committed states triggering the report creation/filtering
   const [committedFilters, setCommittedFilters] = useState({
@@ -150,11 +153,19 @@ export function AdminReports({
 
   // Compile full database dataset in memory using committed filter guidelines
   const filteredData = useMemo(() => {
-    const inRange = (d: string) => (!committedFilters.fromDate || d >= committedFilters.fromDate) && (!committedFilters.toDate || d <= committedFilters.toDate);
+    const inRange = (d: string) => {
+      const normD = normalizeToYYYYMMDD(d);
+      return (!committedFilters.fromDate || normD >= committedFilters.fromDate) && (!committedFilters.toDate || normD <= committedFilters.toDate);
+    };
 
     // Filter bases
     const rawAtt = attendance.filter(a => (committedFilters.emp === "all" || a.empId === committedFilters.emp) && inRange(a.date));
-    const rawLeaves = leaves.filter(l => (committedFilters.emp === "all" || l.empId === committedFilters.emp) && (inRange(l.from) || inRange(l.to)));
+    const rawLeaves = leaves.filter(l => {
+      const isEmpMatch = committedFilters.emp === "all" || l.empId === committedFilters.emp;
+      const normFrom = normalizeToYYYYMMDD(l.from);
+      const normTo = normalizeToYYYYMMDD(l.to);
+      return isEmpMatch && (inRange(normFrom) || inRange(normTo));
+    });
     const rawCoffs = coffs.filter(c => (committedFilters.emp === "all" || c.empId === committedFilters.emp) && inRange(c.date));
     const rawSD = specialDuties.filter(s => (committedFilters.emp === "all" || s.empId === committedFilters.emp) && inRange(s.date));
 
@@ -163,9 +174,29 @@ export function AdminReports({
     rawAtt.forEach(a => {
       if (committedFilters.subType === "all" || committedFilters.subType === "present" || (committedFilters.subType === "spduty" && a.status === "Special Duty") || (committedFilters.subType === "coff" && a.status === "C-Off") || (committedFilters.subType === "leave" && a.status === "Leave")) {
         const durationInfo = getAttendanceDuration(a, fmtDate);
+        
+        // Check for any approved leave that overlaps with this attendance date to determine fractional present weight
+        const matchingApprovedLeave = leaves.find(l => {
+          const normFrom = normalizeToYYYYMMDD(l.from);
+          const normTo = normalizeToYYYYMMDD(l.to);
+          const normDate = normalizeToYYYYMMDD(a.date);
+          return l.empId === a.empId && normDate >= normFrom && normDate <= normTo && l.status === "Approved";
+        });
+        let leaveOverlapDays = 0;
+        if (matchingApprovedLeave) {
+          if (matchingApprovedLeave.durationOption === "half") {
+            leaveOverlapDays = 0.5;
+          } else if (matchingApprovedLeave.durationOption === "hours") {
+            leaveOverlapDays = matchingApprovedLeave.days || 0.25;
+          } else {
+            leaveOverlapDays = 1.0;
+          }
+        }
+        const presentWeight = Math.max(0, 1.0 - leaveOverlapDays);
+
         combined.push({
-          date: a.date,
-          endDate: a.punchOutDate || a.date,
+          date: normalizeToYYYYMMDD(a.date),
+          endDate: a.punchOutDate ? normalizeToYYYYMMDD(a.punchOutDate) : normalizeToYYYYMMDD(a.date),
           type: a.status === "Special Duty" ? "Special Duty" : a.status === "C-Off" ? "C-Off" : a.status === "Leave" ? "Leave" : "Present",
           empName: a.empName,
           empId: employees.find(x => x.id === a.empId)?.empId || "—",
@@ -175,16 +206,29 @@ export function AdminReports({
           status: a.approval,
           isOvernight: !!a.punchOutDate && a.punchOutDate !== a.date,
           gpsIn: a.gpsIn || null,
-          gpsOut: a.gpsOut || null
+          gpsOut: a.gpsOut || null,
+          weight: presentWeight
         });
       }
     });
 
     if (committedFilters.subType === "all" || committedFilters.subType === "leave") {
       rawLeaves.forEach(l => {
+        let leaveWeight = 1.0;
+        if (l.durationOption === "half") {
+          leaveWeight = 0.5;
+        } else if (l.durationOption === "hours") {
+          leaveWeight = l.days || 0.25;
+        } else {
+          leaveWeight = l.days || 1.0;
+        }
+
+        const normFrom = normalizeToYYYYMMDD(l.from);
+        const normTo = normalizeToYYYYMMDD(l.to);
+
         combined.push({
-          date: l.from,
-          endDate: l.to,
+          date: normFrom,
+          endDate: normTo,
           type: "Leave App.",
           empName: getEmpName(l.empId),
           empId: employees.find(x => x.id === l.empId)?.empId || "—",
@@ -193,18 +237,26 @@ export function AdminReports({
             : l.durationOption === "hours" ? ` [Hours: ${l.hoursFrom} - ${l.hoursTo}]`
             : ""
           } - ${l.reason}`,
-          timeLog: `Period: ${fmtDate(l.from)} to ${fmtDate(l.to)}`,
+          timeLog: `Period: ${fmtDate(normFrom)} to ${fmtDate(normTo)}`,
           durationMinutes: 0,
           status: l.status,
           isOvernight: false,
           gpsIn: null,
-          gpsOut: null
+          gpsOut: null,
+          weight: leaveWeight
         });
       });
     }
 
     if (committedFilters.subType === "all" || committedFilters.subType === "coff") {
       rawCoffs.forEach(c => {
+        let coffWeight = 1.0;
+        if (c.durationOption === "half") {
+          coffWeight = 0.5;
+        } else if (c.durationOption === "hours") {
+          coffWeight = 0.25;
+        }
+
         combined.push({
           date: c.date,
           type: "C-Off Request",
@@ -220,7 +272,8 @@ export function AdminReports({
           status: c.status,
           isOvernight: false,
           gpsIn: null,
-          gpsOut: null
+          gpsOut: null,
+          weight: coffWeight
         });
       });
     }
@@ -238,7 +291,8 @@ export function AdminReports({
           status: s.status,
           isOvernight: false,
           gpsIn: null,
-          gpsOut: null
+          gpsOut: null,
+          weight: 1.0
         });
       });
     }
@@ -252,27 +306,48 @@ export function AdminReports({
     const counts = { present: 0, leave: 0, coff: 0, spduty: 0, expected: 0 };
     filteredData.forEach(item => {
       if (item.status !== "Approved") return;
-      if (item.type === "Present") counts.present++;
-      else if (item.type === "Leave" || item.type === "Leave App.") counts.leave++;
-      else if (item.type === "C-Off" || item.type === "C-Off Request") counts.coff++;
-      else if (item.type === "Special Duty" || item.type === "Special Duty App.") counts.spduty++;
+      const weight = item.weight !== undefined ? item.weight : 1.0;
+      if (item.type === "Present") counts.present += weight;
+      else if (item.type === "Leave" || item.type === "Leave App.") counts.leave += weight;
+      else if (item.type === "C-Off" || item.type === "C-Off Request") counts.coff += weight;
+      else if (item.type === "Special Duty" || item.type === "Special Duty App.") counts.spduty += weight;
     });
     return counts;
   }, [filteredData]);
 
-  // Sum of total working time for selected period based on approved and pending present logs
-  const totalWorkingTimeText = useMemo(() => {
+  // Sum of total working time in minutes for selected period
+  const totalWorkingMinutes = useMemo(() => {
     let totalMin = 0;
     filteredData.forEach(item => {
       if ((item.status === "Approved" || item.status === "Pending") && item.durationMinutes) {
         totalMin += item.durationMinutes;
       }
     });
+    return totalMin;
+  }, [filteredData]);
+
+  // Convert minutes to custom hours/days summary text representation
+  const getWorkingDurationDisplay = (totalMin: number) => {
     if (totalMin === 0) return "0 hrs 0 mins";
+    
     const hrs = Math.floor(totalMin / 60);
     const mins = totalMin % 60;
-    return `${hrs} hr${hrs !== 1 ? "s" : ""} ${mins} min${mins !== 1 ? "s" : ""}`;
-  }, [filteredData]);
+    const hoursText = `${hrs} hr${hrs !== 1 ? "s" : ""} ${mins} min${mins !== 1 ? "s" : ""}`;
+    
+    // Convert to days: (totalMin / 60) / authWorkingHours
+    const conversionHours = authWorkingHours || 8;
+    const totalHours = totalMin / 60;
+    const daysFactor = totalHours / conversionHours;
+    const daysText = `${daysFactor.toFixed(2)} Day${daysFactor.toFixed(2) !== "1.00" ? "s" : ""}`;
+    
+    if (summaryUnit === "hours") return hoursText;
+    if (summaryUnit === "days") return daysText;
+    return `${hoursText} (${daysText})`;
+  };
+
+  const totalWorkingTimeText = useMemo(() => {
+    return getWorkingDurationDisplay(totalWorkingMinutes);
+  }, [totalWorkingMinutes, summaryUnit, authWorkingHours]);
 
   // Export CSV
   const handleExportCSV = () => {
@@ -439,19 +514,19 @@ export function AdminReports({
       {/* Aggregate Micro Statistics */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 no-print">
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
-          <div className="font-mono text-xl font-bold text-emerald-600">{summaryBlock.present}</div>
+          <div className="font-mono text-xl font-bold text-emerald-600">{summaryBlock.present.toFixed(1).replace(/\.0$/, "")}</div>
           <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Days Present</div>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
-          <div className="font-mono text-xl font-bold text-rose-500">{summaryBlock.leave}</div>
+          <div className="font-mono text-xl font-bold text-rose-500">{summaryBlock.leave.toFixed(1).replace(/\.0$/, "")}</div>
           <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Leave Days</div>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
-          <div className="font-mono text-xl font-bold text-teal-600">{summaryBlock.coff}</div>
+          <div className="font-mono text-xl font-bold text-teal-600">{summaryBlock.coff.toFixed(1).replace(/\.0$/, "")}</div>
           <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Comp-Off Days</div>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-center">
-          <div className="font-mono text-xl font-bold text-amber-500">{summaryBlock.spduty}</div>
+          <div className="font-mono text-xl font-bold text-amber-500">{summaryBlock.spduty.toFixed(1).replace(/\.0$/, "")}</div>
           <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Special Duty Approved</div>
         </div>
         <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 shadow-sm text-center col-span-2 md:col-span-1">
@@ -471,9 +546,30 @@ export function AdminReports({
               <p className="text-xs text-slate-400">Total validated operational duration in current filter bounds</p>
             </div>
           </div>
-          <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800 flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold tracking-widest text-slate-450 font-mono">Working Time Sum:</span>
-            <span className="font-mono font-bold text-emerald-400 text-sm">{totalWorkingTimeText}</span>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 items-center">
+              <span className="text-[10px] text-slate-400 uppercase font-extrabold px-2.5 font-mono">Format:</span>
+              {(["hours", "days", "both"] as const).map(u => (
+                <button
+                  key={u}
+                  type="button"
+                  onClick={() => setSummaryUnit(u)}
+                  className={`px-3 py-1.5 text-[10px] uppercase font-extrabold rounded-lg transition-all ${
+                    summaryUnit === u 
+                      ? "bg-indigo-600 text-white shadow-md font-extrabold" 
+                      : "text-slate-400 hover:text-white cursor-pointer"
+                  }`}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+
+            <div className="bg-slate-950 px-4 py-2.5 rounded-xl border border-slate-800 flex items-center gap-2">
+              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-450 font-mono">Working Time Sum:</span>
+              <span className="font-mono font-bold text-emerald-400 text-sm">{totalWorkingTimeText}</span>
+            </div>
           </div>
         </div>
 

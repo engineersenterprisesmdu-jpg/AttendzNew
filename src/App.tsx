@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { 
   Building, Users, ClipboardCheck, Calendar, FileSpreadsheet, Database, 
   Settings, BookOpen, Key, Trash2, Edit3, Plus, Search, FolderPlus, 
-  LogOut, ShieldAlert, BadgeInfo, Code, Radio, RefreshCw
+  LogOut, ShieldAlert, BadgeInfo, Code, Radio, RefreshCw, Clock
 } from "lucide-react";
 
 import { Employee, RoleAssignment, Attendance, Leave, Coff, SpecialDuty, Holiday } from "./types";
@@ -57,6 +57,7 @@ export default function App() {
   // Admin global credentials
   const [adminId, setAdminId] = useState(() => syncStorage.getLocalStorage<string>("attendx_admin_id", "ADMIN"));
   const [adminPassword, setAdminPassword] = useState(() => syncStorage.getLocalStorage<string>("attendx_admin_pwd", "Admin@123"));
+  const [authWorkingHours, setAuthWorkingHours] = useState<number>(() => Number(syncStorage.getLocalStorage<string>("attendx_auth_working_hours", "8")));
 
   // Helper matching employee names in database
   const getEmpName = (id: string) => {
@@ -155,9 +156,28 @@ export default function App() {
 
   // Local Masking Overrides to intercept all existing Firestore calls dynamically
   const firestoreSetDoc = async (collectionPath: string, docId: string, data: any) => {
+    // Utility to recursively clean any properties with undefined values
+    const cleanData = (obj: any): any => {
+      if (obj === null || typeof obj !== "object") {
+        return obj;
+      }
+      if (Array.isArray(obj)) {
+        return obj.map(cleanData);
+      }
+      const cleaned: any = {};
+      Object.keys(obj).forEach((key) => {
+        if (obj[key] !== undefined) {
+          cleaned[key] = cleanData(obj[key]);
+        }
+      });
+      return cleaned;
+    };
+
+    const sanitizedData = cleanData(data);
+
     if (dbMode === "supabase") {
       try {
-        await supabaseSetDoc(collectionPath, docId, data);
+        await supabaseSetDoc(collectionPath, docId, sanitizedData);
         console.log(`[Supabase Engine] Successfully saved ${collectionPath}/${docId}`);
       } catch (err: any) {
         console.error(`[Supabase Engine] Failed to save document:`, err);
@@ -165,7 +185,7 @@ export default function App() {
       }
     } else if (dbMode === "firebase" && fbConfigured) {
       try {
-        await originalFirestoreSetDoc(collectionPath, docId, data);
+        await originalFirestoreSetDoc(collectionPath, docId, sanitizedData);
       } catch (err: any) {
         console.error(`[Firebase Engine] Failed to save document:`, err);
         alert(`⚠️ Firebase Database Sync Failed!\n\nUnable to save records to Cloud Firestore.\n\nError: ${err?.message || err}`);
@@ -280,6 +300,7 @@ export default function App() {
           if (globalConfig.designations) setDesignations(globalConfig.designations);
           if (globalConfig.leaveTypes) setLeaveTypes(globalConfig.leaveTypes);
           if (globalConfig.taskTypes) setTaskTypes(globalConfig.taskTypes);
+          if (globalConfig.authWorkingHours !== undefined) setAuthWorkingHours(Number(globalConfig.authWorkingHours));
         } else if (!alreadySeeded) {
           // Seed settings to Supabase
           supabaseSetDoc("settings", "global", {
@@ -289,7 +310,8 @@ export default function App() {
             departments,
             designations,
             leaveTypes,
-            taskTypes
+            taskTypes,
+            authWorkingHours
           });
           localStorage.setItem(seededKey, "true");
         }
@@ -331,7 +353,7 @@ export default function App() {
             currentLocalState.forEach((item: any) => {
               const docId = item.id || item.empId;
               if (docId) {
-                originalFirestoreSetDoc(collectionName, docId, item);
+                firestoreSetDoc(collectionName, docId, item);
               }
             });
             localStorage.setItem(seededKey, "true");
@@ -373,15 +395,17 @@ export default function App() {
           if (data.designations) setDesignations(data.designations);
           if (data.leaveTypes) setLeaveTypes(data.leaveTypes);
           if (data.taskTypes) setTaskTypes(data.taskTypes);
+          if (data.authWorkingHours !== undefined) setAuthWorkingHours(Number(data.authWorkingHours));
         } else if (!alreadySeeded) {
           // Seed settings to cloud
-          originalFirestoreSetDoc("settings", "global", {
+          firestoreSetDoc("settings", "global", {
             adminId,
             adminPassword,
             departments,
             designations,
             leaveTypes,
-            taskTypes
+            taskTypes,
+            authWorkingHours
           });
           localStorage.setItem(seededKey, "true");
         }
@@ -416,9 +440,10 @@ export default function App() {
     syncStorage.setLocalStorage("attendx_holidays", holidays);
     syncStorage.setLocalStorage("attendx_admin_id", adminId);
     syncStorage.setLocalStorage("attendx_admin_pwd", adminPassword);
+    syncStorage.setLocalStorage("attendx_auth_working_hours", String(authWorkingHours));
   }, [
     user, employees, roles, departments, designations, leaveTypes, taskTypes, 
-    attendance, leaves, coffs, specialDuties, holidays, adminId, adminPassword
+    attendance, leaves, coffs, specialDuties, holidays, adminId, adminPassword, authWorkingHours
   ]);
 
   // -------------------------------------------------------------
@@ -1684,7 +1709,8 @@ export default function App() {
                           departments: updated,
                           designations,
                           leaveTypes,
-                          taskTypes
+                          taskTypes,
+                          authWorkingHours
                         });
                       }
                       setNewDept("");
@@ -1717,7 +1743,8 @@ export default function App() {
                           departments,
                           designations: updated,
                           leaveTypes,
-                          taskTypes
+                          taskTypes,
+                          authWorkingHours
                         });
                       }
                       setNewDesig("");
@@ -1729,6 +1756,44 @@ export default function App() {
                         {d}
                       </span>
                     ))}
+                  </div>
+                </div>
+
+                {/* Working Hours Policy Configuration */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4 col-span-1 md:col-span-2">
+                  <h3 className="font-display font-semibold text-sm text-slate-800 border-b pb-2 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-indigo-600" /> Working Hours Policy &amp; Configuration
+                  </h3>
+                  <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold text-slate-700">Authorized Working Hours Per Day</p>
+                      <p className="text-[11px] text-slate-450">This config is used in reports to convert Total Working Hours into equivalent Working Days.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="24" 
+                        value={authWorkingHours} 
+                        onChange={e => {
+                          const val = Math.max(1, Math.min(24, Number(e.target.value) || 8));
+                          setAuthWorkingHours(val);
+                          if (cloudSyncActive) {
+                            firestoreSetDoc("settings", "global", {
+                              adminId,
+                              adminPassword,
+                              departments,
+                              designations,
+                              leaveTypes,
+                              taskTypes,
+                              authWorkingHours: val
+                            });
+                          }
+                        }}
+                        className="text-center font-mono font-bold text-sm px-3 py-2 border rounded-lg w-24 bg-white focus:outline-none focus:border-indigo-500" 
+                      />
+                      <span className="text-xs text-slate-500 font-semibold uppercase">Hours</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2052,6 +2117,7 @@ export default function App() {
                 coffs={coffs}
                 specialDuties={specialDuties}
                 holidays={holidays}
+                authWorkingHours={authWorkingHours}
               />
             )}
 

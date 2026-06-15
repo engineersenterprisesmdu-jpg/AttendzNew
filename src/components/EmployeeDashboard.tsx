@@ -4,7 +4,7 @@ import {
   RefreshCw, Award, LogOut, FileText, Compass, ChevronLeft, ChevronRight,
   Trash2, Edit, Printer, Download
 } from "lucide-react";
-import { Employee, Attendance, Leave, Coff, SpecialDuty, Holiday } from "../types";
+import { Employee, Attendance, Leave, Coff, SpecialDuty, Holiday, normalizeToYYYYMMDD } from "../types";
 
 interface EmployeeDashboardProps {
   user: Employee;
@@ -85,14 +85,39 @@ export function EmployeeDashboard({
     for (let d = 1; d <= daysInMonth; d++) {
       const dStr = `${ledgerYear}-${String(ledgerMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       
-      const attRec = attendance.find(a => a.empId === user.id && a.date === dStr && a.approval === "Approved");
-      if (attRec) presentCount++;
+      const leaveRec = leaves.find(l => {
+        const normFrom = normalizeToYYYYMMDD(l.from);
+        const normTo = normalizeToYYYYMMDD(l.to);
+        return l.empId === user.id && dStr >= normFrom && dStr <= normTo && l.status === "Approved";
+      });
+      let leaveVal = 0;
+      if (leaveRec) {
+        if (leaveRec.durationOption === "half") {
+          leaveVal = 0.5;
+        } else if (leaveRec.durationOption === "hours") {
+          leaveVal = leaveRec.days || 0.25;
+        } else {
+          leaveVal = leaveRec.days || 1.0;
+        }
+        leaveCount += leaveVal;
+      }
 
-      const leaveRec = leaves.find(l => l.empId === user.id && dStr >= l.from && dStr <= l.to && l.status === "Approved");
-      if (leaveRec) leaveCount++;
+      const attRec = attendance.find(a => a.empId === user.id && a.date === dStr && a.approval === "Approved");
+      if (attRec) {
+        const presentVal = Math.max(0, 1.0 - leaveVal);
+        presentCount += presentVal;
+      }
 
       const coffRec = coffs.find(c => c.empId === user.id && c.date === dStr && c.status === "Approved");
-      if (coffRec) coffCount++;
+      if (coffRec) {
+        let coffVal = 1.0;
+        if (coffRec.durationOption === "half") {
+          coffVal = 0.5;
+        } else if (coffRec.durationOption === "hours") {
+          coffVal = 0.25;
+        }
+        coffCount += coffVal;
+      }
 
       const sdRec = specialDuties.find(s => s.empId === user.id && s.date === dStr && s.status === "Approved");
       if (sdRec) sdCount++;
@@ -161,7 +186,11 @@ export function EmployeeDashboard({
       const dayName = dDate.toLocaleDateString("en-IN", { weekday: "short" });
 
       const attRec = attendance.find(a => a.empId === user.id && a.date === dStr);
-      const leaveRec = leaves.find(l => l.empId === user.id && dStr >= l.from && dStr <= l.to);
+      const leaveRec = leaves.find(l => {
+        const normFrom = normalizeToYYYYMMDD(l.from);
+        const normTo = normalizeToYYYYMMDD(l.to);
+        return l.empId === user.id && dStr >= normFrom && dStr <= normTo;
+      });
       const coffRec = coffs.find(c => c.empId === user.id && c.date === dStr);
       const sdRec = specialDuties.find(s => s.empId === user.id && s.date === dStr);
       const holRec = holidays.find(h => h.date === dStr);
@@ -239,6 +268,9 @@ export function EmployeeDashboard({
   const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
   const [editingCoffId, setEditingCoffId] = useState<string | null>(null);
   const [editingSdId, setEditingSdId] = useState<string | null>(null);
+  
+  // Feedback banners inside dashboard to bypass iframe alert blocks
+  const [leaveFeedback, setLeaveFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Reset local punch form states
   const resetPunchState = () => {
@@ -328,16 +360,75 @@ export function EmployeeDashboard({
     return date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
   };
 
+  const checkTimeInLeave = (dateStr: string, time24Str: string) => {
+    const leave = leaves?.find(l => {
+      const normFrom = normalizeToYYYYMMDD(l.from);
+      const normTo = normalizeToYYYYMMDD(l.to);
+      return (
+        l.empId === user.id && 
+        l.status === "Approved" && 
+        dateStr >= normFrom && 
+        dateStr <= normTo
+      );
+    });
+    if (!leave) return { inLeave: false };
+    
+    // Full day leave covers any time!
+    if (!leave.durationOption || leave.durationOption === "full") {
+      return { 
+        inLeave: true, 
+        message: `This is a Full Day Approved Leave. Punches are fully locked for ${dateStr}.` 
+      };
+    }
+    
+    if (leave.durationOption === "half") {
+      const isFirst = leave.halfDayType === "first" || !leave.halfDayType;
+      const start = isFirst ? "10:00" : "14:00";
+      const end = isFirst ? "14:00" : "18:00";
+      if (time24Str >= start && time24Str <= end) {
+        return {
+          inLeave: true,
+          message: `Your punch time falls inside your approved Half Day Leave period (${start} to ${end}). You are only allowed to punch outside this duration.`
+        };
+      }
+    }
+    
+    if (leave.durationOption === "hours" && leave.hoursFrom && leave.hoursTo) {
+      if (time24Str >= leave.hoursFrom && time24Str <= leave.hoursTo) {
+        return {
+          inLeave: true,
+          message: `Your punch time falls inside your approved Custom Hours Leave period (${leave.hoursFrom} to ${leave.hoursTo}). You are only allowed to punch outside this duration.`
+        };
+      }
+    }
+    
+    return { inLeave: false };
+  };
+
   const getDayStatus = (dStr: string) => {
     // 0. Check approved leaves
-    const approvedLeave = leaves?.find(l => 
-      l.empId === user.id && 
-      l.status === "Approved" && 
-      dStr >= l.from && 
-      dStr <= l.to
-    );
+    const approvedLeave = leaves?.find(l => {
+      const normFrom = normalizeToYYYYMMDD(l.from);
+      const normTo = normalizeToYYYYMMDD(l.to);
+      return (
+        l.empId === user.id && 
+        l.status === "Approved" && 
+        dStr >= normFrom && 
+        dStr <= normTo
+      );
+    });
     if (approvedLeave) {
-      return { type: "Leave", label: `Leave (${approvedLeave.leaveType})`, color: "bg-rose-100 border-rose-300 text-rose-700", completed: true };
+      const durationText = approvedLeave.durationOption === "half" ? `Half Day (${approvedLeave.halfDayType === "first" ? "First Half: 10AM-2PM" : "Second Half: 2PM-6PM"})`
+        : approvedLeave.durationOption === "hours" ? `Hours (${approvedLeave.hoursFrom}-${approvedLeave.hoursTo})`
+        : "Full Day";
+      const isFull = !approvedLeave.durationOption || approvedLeave.durationOption === "full";
+      return { 
+        type: "Leave", 
+        label: `Leave (${approvedLeave.leaveType}) - ${durationText}`, 
+        color: "bg-rose-100 border-rose-300 text-rose-700", 
+        completed: isFull,
+        isFullDay: isFull
+      };
     }
 
     // 1. Check approved C-Off
@@ -397,14 +488,11 @@ export function EmployeeDashboard({
 
   // Automated Sequential GPS triggers
   const triggerPunchIn = () => {
-    const isApprovedLeave = leaves?.some(l => 
-      l.empId === user.id && 
-      l.status === "Approved" && 
-      selectedDate >= l.from && 
-      selectedDate <= l.to
-    );
-    if (isApprovedLeave) {
-      alert(`Access Denied: You have an APPROVED LEAVE on ${selectedDate}. You are not allowed to punch in.`);
+    const now = new Date();
+    const inTime24 = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const checkResult = checkTimeInLeave(selectedDate, inTime24);
+    if (checkResult.inLeave) {
+      alert(`Access Denied: ${checkResult.message}`);
       return;
     }
 
@@ -509,6 +597,14 @@ export function EmployeeDashboard({
   };
 
   const triggerPunchOut = () => {
+    const now = new Date();
+    const outTime24 = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const checkResult = checkTimeInLeave(selectedDate, outTime24);
+    if (checkResult.inLeave) {
+      alert(`Access Denied: ${checkResult.message}`);
+      return;
+    }
+
     setGettingGPS(true);
 
     const executePunchOut = (gpsObj: any) => {
@@ -626,15 +722,68 @@ export function EmployeeDashboard({
     alert("Updated attendance entry successfully resubmitted to Admin! ✅");
   };
 
+  // Helper to normalize entered date strings into standard YYYY-MM-DD
+  const normalizeDateString = (input: string): string => {
+    if (!input) return "";
+    const trimmed = input.trim();
+    // If it's already YYYY-MM-DD, return as-is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+    // Check for DD.MM.YYYY, DD/MM/YYYY, or DD-MM-YYYY
+    const parts = trimmed.split(/[-./]/);
+    if (parts.length === 3) {
+      const p0 = parts[0];
+      const p1 = parts[1];
+      const p2 = parts[2];
+      // Case 1: p2 is 4 digits (e.g., 12.06.2026 -> 2026-06-12)
+      if (p2.length === 4) {
+        const year = p2;
+        const month = p1.padStart(2, '0');
+        const day = p0.padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      // Case 2: p0 is 4 digits (e.g., 2026.06.12 -> 2026-06-12)
+      if (p0.length === 4) {
+        const year = p0;
+        const month = p1.padStart(2, '0');
+        const day = p2.padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+    return trimmed;
+  };
+
   // Submit Request Portals
   const handleLeaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!lvType || !lvFrom || !lvTo || !lvReason) {
-      alert("Please fill in matching bounds credentials.");
+    setLeaveFeedback(null);
+
+    const normFrom = normalizeDateString(lvFrom);
+    let normTo = normalizeDateString(lvTo);
+
+    // If applying for non-full day options, the to-date must equal the from-date
+    if (lvDurationOption !== "full") {
+      normTo = normFrom;
+    }
+
+    if (!lvType || !normFrom || !normTo || !lvReason.trim()) {
+      const errText = "Please specify leave category, valid dates, and reasoning context before submission.";
+      setLeaveFeedback({ type: "error", text: errText });
+      alert(errText);
       return;
     }
-    const fromTime = new Date(lvFrom).getTime();
-    const toTime = new Date(lvTo).getTime();
+
+    const fromTime = new Date(normFrom).getTime();
+    const toTime = new Date(normTo).getTime();
+    
+    if (isNaN(fromTime) || isNaN(toTime)) {
+      const errText = "Specified date range is invalid. Please double check the formatting (use YYYY-MM-DD or DD.MM.YYYY).";
+      setLeaveFeedback({ type: "error", text: errText });
+      alert(errText);
+      return;
+    }
+
     let days = Math.round((toTime - fromTime) / 864e5) + 1;
 
     if (lvDurationOption === "half") {
@@ -650,21 +799,35 @@ export function EmployeeDashboard({
       }
     }
 
-    onSubmitLeave({
+    const lvPayload: any = {
       id: editingLeaveId || `lv-${Date.now()}`,
       empId: user.id,
       leaveType: lvType,
-      from: lvFrom,
-      to: lvTo,
+      from: normFrom,
+      to: normTo,
       days: days > 0 ? days : 1,
       reason: lvReason,
       status: "Pending",
-      durationOption: lvDurationOption,
-      halfDayType: lvDurationOption === "half" ? lvHalfDayType : undefined,
-      hoursFrom: lvDurationOption === "hours" ? lvHoursFrom : undefined,
-      hoursTo: lvDurationOption === "hours" ? lvHoursTo : undefined
-    });
+      durationOption: lvDurationOption
+    };
 
+    if (lvDurationOption === "half") {
+      lvPayload.halfDayType = lvHalfDayType || "first";
+    } else if (lvDurationOption === "hours") {
+      lvPayload.hoursFrom = lvHoursFrom || "10:00";
+      lvPayload.hoursTo = lvHoursTo || "14:00";
+    }
+
+    onSubmitLeave(lvPayload);
+
+    const successText = editingLeaveId 
+      ? "Leave request updated and resubmitted successfully! ✅" 
+      : "Leave request dispatched to administrators! ✅";
+
+    setLeaveFeedback({ type: "success", text: successText });
+    alert(successText);
+
+    // Clear form states
     setLvType("");
     setLvFrom("");
     setLvTo("");
@@ -674,7 +837,11 @@ export function EmployeeDashboard({
     setLvHalfDayType("first");
     setLvHoursFrom("10:00");
     setLvHoursTo("14:00");
-    alert(editingLeaveId ? "Leave request updated and resubmitted successfully! ✅" : "Leave request dispatched to administrators! ✅");
+
+    // Automatically remove Success banner block after a few seconds
+    setTimeout(() => {
+      setLeaveFeedback(null);
+    }, 8000);
   };
 
   const handleCoffSubmit = (e: React.FormEvent) => {
@@ -927,7 +1094,29 @@ export function EmployeeDashboard({
                 Work Details Registration
               </h3>
 
-              {getDayStatus(selectedDate)?.type === "Leave" ? (
+              {(() => {
+                const dayStatus = getDayStatus(selectedDate);
+                if (dayStatus?.type === "Leave" && !dayStatus.isFullDay) {
+                  return (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-bold uppercase tracking-wider text-amber-700">Part-Time Approved Leave</h4>
+                        <p className="text-xs text-amber-600 mt-1">
+                          You have been granted a part-time leave: <b>{dayStatus.label}</b>. 
+                          You are allowed to check-in and punch for the remaining hours of the day. 
+                        </p>
+                        <p className="text-[10px] text-amber-500 font-extrabold uppercase mt-1 tracking-wider font-mono">
+                          🚨 Warning: Punches within your leave-granted timing are strictly blocked.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {getDayStatus(selectedDate)?.type === "Leave" && getDayStatus(selectedDate)?.isFullDay ? (
                 <div className="bg-rose-50/15 border border-rose-300 text-rose-700 p-4 rounded-xl flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0" />
                   <div>
@@ -1305,6 +1494,17 @@ export function EmployeeDashboard({
                   className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white focus:outline-none"
                 />
               </div>
+
+              {leaveFeedback && (
+                <div className={`p-3.5 rounded-xl text-xs font-sans border flex items-start gap-2 animate-fadeIn ${
+                  leaveFeedback.type === "success" 
+                    ? "bg-emerald-500/10 border-emerald-300 text-emerald-800" 
+                    : "bg-rose-500/10 border-rose-300 text-rose-850"
+                }`}>
+                  <span className="text-sm mt-0.5">{leaveFeedback.type === "success" ? "✅" : "⚠️"}</span>
+                  <p className="font-semibold leading-relaxed">{leaveFeedback.text}</p>
+                </div>
+              )}
 
               <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 font-bold text-xs uppercase text-white rounded-lg cursor-pointer transition-all">
                 Submit Leave Application
@@ -1778,15 +1978,15 @@ export function EmployeeDashboard({
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3.5 text-center shadow-sm">
               <span className="text-xs uppercase text-emerald-600 font-bold tracking-wider block mb-1">Present Days</span>
-              <div className="text-xl font-bold text-emerald-800">{ledgerStats.presentCount}</div>
+              <div className="text-xl font-bold text-emerald-800">{ledgerStats.presentCount.toFixed(1).replace(/\.0$/, "")}</div>
             </div>
             <div className="bg-rose-50 border border-rose-100 rounded-xl p-3.5 text-center shadow-sm">
               <span className="text-xs uppercase text-rose-600 font-bold tracking-wider block mb-1">Approved Leaves</span>
-              <div className="text-xl font-bold text-rose-800">{ledgerStats.leaveCount}</div>
+              <div className="text-xl font-bold text-rose-800">{ledgerStats.leaveCount.toFixed(1).replace(/\.0$/, "")}</div>
             </div>
             <div className="bg-sky-50 border border-sky-100 rounded-xl p-3.5 text-center shadow-sm">
               <span className="text-xs uppercase text-sky-600 font-bold tracking-wider block mb-1">C-Off Claims</span>
-              <div className="text-xl font-bold text-sky-800">{ledgerStats.coffCount}</div>
+              <div className="text-xl font-bold text-sky-800">{ledgerStats.coffCount.toFixed(1).replace(/\.0$/, "")}</div>
             </div>
             <div className="bg-amber-50 border border-amber-100 rounded-xl p-3.5 text-center shadow-sm">
               <span className="text-xs uppercase text-amber-600 font-bold tracking-wider block mb-1">Special Duty</span>
