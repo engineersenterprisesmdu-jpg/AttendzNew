@@ -2,7 +2,8 @@ import React, { useState, useEffect } from "react";
 import { 
   Building, Users, ClipboardCheck, Calendar, FileSpreadsheet, Database, 
   Settings, BookOpen, Key, Trash2, Edit3, Plus, Search, FolderPlus, 
-  LogOut, ShieldAlert, BadgeInfo, Code, Radio, RefreshCw, Clock
+  LogOut, ShieldAlert, BadgeInfo, Code, Radio, RefreshCw, Clock,
+  Smartphone, X
 } from "lucide-react";
 
 import { Employee, RoleAssignment, Attendance, Leave, Coff, SpecialDuty, Holiday } from "./types";
@@ -151,6 +152,51 @@ export default function App() {
     return !!(apikey && projid && appid);
   });
   const [firebaseInitialized, setFirebaseInitialized] = useState(false);
+
+  // PWA Mobile App Installation Integration States
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState<boolean>(() => {
+    return localStorage.getItem("attendx_install_banner_dismissed2") !== "true";
+  });
+  const [isIOS, setIsIOS] = useState<boolean>(false);
+  const [isStandalone, setIsStandalone] = useState<boolean>(false);
+  const [isIosPopupOpen, setIsIosPopupOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Check if running as PWA standalone Mode
+    const isPwa = window.matchMedia('(display-mode: standalone)').matches || 
+                  (navigator as any).standalone === true;
+    setIsStandalone(isPwa);
+
+    // Detect if Mobile iOS device
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    setIsIOS(ios);
+
+    const handleBeforeInstall = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+    };
+  }, []);
+
+  const triggerNativeInstall = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    if (choice.outcome === "accepted") {
+      setShowInstallBanner(false);
+    }
+    setDeferredPrompt(null);
+  };
+
+  const dismissInstallBanner = () => {
+    localStorage.setItem("attendx_install_banner_dismissed2", "true");
+    setShowInstallBanner(false);
+  };
 
   const cloudSyncActive = dbMode === "supabase" || (dbMode === "firebase" && fbConfigured);
 
@@ -994,6 +1040,123 @@ export default function App() {
           </div>
         )}
       </header>
+
+      {/* PWA Mobile App Installation Prompt Bar */}
+      {showInstallBanner && !isStandalone && (
+        <div className="bg-indigo-950 border-b border-indigo-800/80 text-indigo-100 px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-4 no-print relative overflow-hidden">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center font-display font-medium text-sm">
+              📱
+            </div>
+            <div>
+              <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                Install AttendX as a Mobile App
+                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/30 uppercase font-mono tracking-wider font-extrabold animate-pulse">Offline Support</span>
+              </p>
+              <p className="text-[10px] text-indigo-200">Pin to your phone's home screen for instantaneous GPS punch-ins & real-time offline synchronization!</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+            {isIOS ? (
+              <button
+                onClick={() => setIsIosPopupOpen(true)}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-bold rounded-lg shadow transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                📲 How to Install
+              </button>
+            ) : deferredPrompt ? (
+              <button
+                onClick={triggerNativeInstall}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-xs text-white font-bold rounded-lg shadow transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                📥 Install Now
+              </button>
+            ) : (
+              <button
+                onClick={() => setIsIosPopupOpen(true)}
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-bold rounded-lg shadow transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                📲 Install Guide
+              </button>
+            )}
+
+            <button
+              onClick={dismissInstallBanner}
+              className="p-1.5 hover:bg-indigo-800/60 text-indigo-300 hover:text-white rounded-lg transition-colors cursor-pointer"
+              title="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* iOS/Generic Installation Instructions Dialog */}
+      {isIosPopupOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 no-print">
+          <div className="bg-white border border-slate-200 rounded-2xl w-full max-w-md p-6 shadow-2xl relative space-y-4 text-slate-800">
+            <button
+              onClick={() => setIsIosPopupOpen(false)}
+              className="absolute top-4 right-4 p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1.5">
+              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center text-xl mx-auto shadow-inner">
+                📲
+              </div>
+              <h3 className="text-lg font-bold font-display text-slate-900">Install AttendX App on Mobile</h3>
+              <p className="text-xs text-slate-500">Access your attendance workspace directly from your mobile home screen with one tap!</p>
+            </div>
+
+            <div className="border border-slate-100 bg-slate-50 rounded-xl p-4 space-y-4">
+              {isIOS ? (
+                <>
+                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-widest border-b border-indigo-100 pb-1.5 font-mono">iPhone / iPad (Safari Instruction)</div>
+                  <ol className="text-xs text-slate-600 space-y-3 list-decimal list-inside pl-1">
+                    <li className="leading-relaxed">
+                      Tap the <span className="font-bold text-indigo-600 font-mono">"Share"</span> button in Safari menu (the square box with an arrow pointing up icon <span className="bg-slate-200 px-1 py-0.5 rounded text-[10px]">⎙</span>).
+                    </li>
+                    <li className="leading-relaxed">
+                      Scroll down/swipe through the sharing options and click <span className="font-bold text-indigo-600">"Add to Home Screen"</span> <span className="text-lg font-normal">+</span>.
+                    </li>
+                    <li className="leading-relaxed">
+                      Verify the title is <span className="font-bold">AttendX</span> and tap <span className="font-bold text-emerald-600">"Add"</span> to place the app on your home screen.
+                    </li>
+                  </ol>
+                </>
+              ) : (
+                <>
+                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-widest border-b border-indigo-100 pb-1.5 font-mono">Android / Generic Browser</div>
+                  <ol className="text-xs text-slate-600 space-y-3 list-decimal list-inside pl-1">
+                    <li className="leading-relaxed">
+                      Tap the <span className="font-bold text-indigo-600">Menu</span> button (the three vertical dots <span className="bg-slate-200 px-1.5 py-0.5 rounded text-[10px]">⋮</span>) in the top-right corner of your browser.
+                    </li>
+                    <li className="leading-relaxed">
+                      Select <span className="font-bold text-indigo-600">"Add to Home Screen"</span> or <span className="font-bold text-indigo-600">"Install App"</span>.
+                    </li>
+                    <li className="leading-relaxed">
+                      Confirm the installation prompt to finish pinning it as an application icon.
+                    </li>
+                  </ol>
+                </>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setIsIosPopupOpen(false)}
+                className="w-full sm:w-auto px-5 py-2.5 bg-indigo-600 hover:bg-indigo-750 text-xs font-bold text-white rounded-xl shadow-md transition-all cursor-pointer text-center"
+              >
+                Dismiss &amp; Close Guide
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Stage */}
       <main className="flex-1 flex flex-col p-4 sm:p-6 pb-24 md:pb-6 max-w-7xl w-full mx-auto">
