@@ -219,9 +219,17 @@ export function EmployeeDashboard({
   const [lvFrom, setLvFrom] = useState("");
   const [lvTo, setLvTo] = useState("");
   const [lvReason, setLvReason] = useState("");
+  const [lvDurationOption, setLvDurationOption] = useState<"full" | "half" | "hours">("full");
+  const [lvHalfDayType, setLvHalfDayType] = useState<"first" | "second">("first");
+  const [lvHoursFrom, setLvHoursFrom] = useState("10:00");
+  const [lvHoursTo, setLvHoursTo] = useState("14:00");
 
   const [coffDate, setCoffDate] = useState("");
   const [coffReason, setCoffReason] = useState("");
+  const [coffDurationOption, setCoffDurationOption] = useState<"full" | "half" | "hours">("full");
+  const [coffHalfDayType, setCoffHalfDayType] = useState<"first" | "second">("first");
+  const [coffHoursFrom, setCoffHoursFrom] = useState("10:00");
+  const [coffHoursTo, setCoffHoursTo] = useState("14:00");
 
   const [sdDate, setSdDate] = useState("");
   const [sdReason, setSdReason] = useState("");
@@ -627,7 +635,20 @@ export function EmployeeDashboard({
     }
     const fromTime = new Date(lvFrom).getTime();
     const toTime = new Date(lvTo).getTime();
-    const days = Math.round((toTime - fromTime) / 864e5) + 1;
+    let days = Math.round((toTime - fromTime) / 864e5) + 1;
+
+    if (lvDurationOption === "half") {
+      days = 0.5;
+    } else if (lvDurationOption === "hours") {
+      try {
+        const [h1, m1] = lvHoursFrom.split(":").map(Number);
+        const [h2, m2] = lvHoursTo.split(":").map(Number);
+        const diffHrs = (h2 + m2 / 60) - (h1 + m1 / 60);
+        days = diffHrs > 0 ? Math.round((diffHrs / 8) * 100) / 100 : 0.2;
+      } catch (err) {
+        days = 0.2;
+      }
+    }
 
     onSubmitLeave({
       id: editingLeaveId || `lv-${Date.now()}`,
@@ -637,7 +658,11 @@ export function EmployeeDashboard({
       to: lvTo,
       days: days > 0 ? days : 1,
       reason: lvReason,
-      status: "Pending"
+      status: "Pending",
+      durationOption: lvDurationOption,
+      halfDayType: lvDurationOption === "half" ? lvHalfDayType : undefined,
+      hoursFrom: lvDurationOption === "hours" ? lvHoursFrom : undefined,
+      hoursTo: lvDurationOption === "hours" ? lvHoursTo : undefined
     });
 
     setLvType("");
@@ -645,6 +670,10 @@ export function EmployeeDashboard({
     setLvTo("");
     setLvReason("");
     setEditingLeaveId(null);
+    setLvDurationOption("full");
+    setLvHalfDayType("first");
+    setLvHoursFrom("10:00");
+    setLvHoursTo("14:00");
     alert(editingLeaveId ? "Leave request updated and resubmitted successfully! ✅" : "Leave request dispatched to administrators! ✅");
   };
 
@@ -659,11 +688,19 @@ export function EmployeeDashboard({
       empId: user.id,
       date: coffDate,
       reason: coffReason,
-      status: "Pending"
+      status: "Pending",
+      durationOption: coffDurationOption,
+      halfDayType: coffDurationOption === "half" ? coffHalfDayType : undefined,
+      hoursFrom: coffDurationOption === "hours" ? coffHoursFrom : undefined,
+      hoursTo: coffDurationOption === "hours" ? coffHoursTo : undefined
     });
     setCoffDate("");
     setCoffReason("");
     setEditingCoffId(null);
+    setCoffDurationOption("full");
+    setCoffHalfDayType("first");
+    setCoffHoursFrom("10:00");
+    setCoffHoursTo("14:00");
     alert(editingCoffId ? "C-Off Claim updated and resubmitted successfully! ✅" : "Compensatory Off claim dispatched to administrator! ✅");
   };
 
@@ -1140,25 +1177,122 @@ export function EmployeeDashboard({
                 </select>
               </div>
 
+              {/* Leave Duration Options */}
+              <div className="space-y-2 bg-slate-50 border border-slate-100 p-3 rounded-lg">
+                <label className="block text-xs font-bold text-slate-650 uppercase tracking-wider">Leave Duration *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: "full", label: "Full Day" },
+                    { key: "half", label: "Half Day" },
+                    { key: "hours", label: "Hours" }
+                  ].map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => {
+                        setLvDurationOption(opt.key as any);
+                        if (opt.key !== "full" && lvFrom) {
+                          setLvTo(lvFrom);
+                        }
+                      }}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-all uppercase cursor-pointer ${
+                        lvDurationOption === opt.key
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* If Half Day selected */}
+                {lvDurationOption === "half" && (
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5 animate-fadeIn">
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase">Select Day Half</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setLvHalfDayType("first")}
+                        className={`px-2 py-1 text-2xs font-semibold rounded-md border cursor-pointer transition-all ${
+                          lvHalfDayType === "first"
+                            ? "bg-indigo-50 border-indigo-300 text-indigo-700"
+                            : "bg-white text-slate-600 border-slate-200"
+                        }`}
+                      >
+                        First Half (10 AM to 2 PM)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLvHalfDayType("second")}
+                        className={`px-2 py-1 text-2xs font-semibold rounded-md border cursor-pointer transition-all ${
+                          lvHalfDayType === "second"
+                            ? "bg-indigo-50 border-indigo-300 text-indigo-700"
+                            : "bg-white text-slate-600 border-slate-200"
+                        }`}
+                      >
+                        Second Half (2 PM to 6 PM)
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* If Hours selected */}
+                {lvDurationOption === "hours" && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2 animate-fadeIn">
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase">Select Hours Range</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block mb-0.5 font-medium">From Time</span>
+                        <input
+                          type="time"
+                          value={lvHoursFrom}
+                          onChange={(e) => setLvHoursFrom(e.target.value)}
+                          className="w-full text-xs rounded-lg border border-slate-200 px-3 py-1.5 bg-white focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block mb-0.5 font-medium">To Time</span>
+                        <input
+                          type="time"
+                          value={lvHoursTo}
+                          onChange={(e) => setLvHoursTo(e.target.value)}
+                          className="w-full text-xs rounded-lg border border-slate-200 px-3 py-1.5 bg-white focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5 font-sans">Start Chronology</label>
+                  <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5 font-sans">
+                    {lvDurationOption === "full" ? "Start Chronology" : "Leave Date"}
+                  </label>
                   <input
                     type="date"
                     value={lvFrom}
-                    onChange={e => setLvFrom(e.target.value)}
+                    onChange={e => {
+                      setLvFrom(e.target.value);
+                      if (lvDurationOption !== "full") {
+                        setLvTo(e.target.value);
+                      }
+                    }}
                     className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white focus:outline-none"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5 font-sans">End Chronology</label>
-                  <input
-                    type="date"
-                    value={lvTo}
-                    onChange={e => setLvTo(e.target.value)}
-                    className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white focus:outline-none"
-                  />
-                </div>
+                {lvDurationOption === "full" && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5 font-sans">End Chronology</label>
+                    <input
+                      type="date"
+                      value={lvTo}
+                      onChange={e => setLvTo(e.target.value)}
+                      className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white focus:outline-none"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1189,11 +1323,22 @@ export function EmployeeDashboard({
                   .filter(l => l.empId === user.id)
                   .map((l, idx) => (
                     <div key={idx} className="p-3 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-between">
-                      <div className="space-y-0.5">
+                      <div className="space-y-1">
                         <div className="text-sm font-bold text-slate-800">{l.leaveType}</div>
                         <div className="text-[11px] text-slate-400 font-mono">
-                          {l.from} to {l.to} ({l.days} days)
+                          Period: {l.from} to {l.to} ({l.days} day{l.days > 1 ? "s" : ""})
                         </div>
+                        {l.durationOption && (
+                          <div className="text-[10px] text-indigo-600 font-semibold uppercase bg-indigo-50 border border-indigo-100/50 rounded px-1.5 py-0.5 w-fit font-mono">
+                            {l.durationOption === "half" ? (
+                              <span>Half Day ({l.halfDayType === "first" ? "First Half: 10 AM - 2 PM" : "Second Half: 2 PM - 6 PM"})</span>
+                            ) : l.durationOption === "hours" ? (
+                              <span>Hours ({l.hoursFrom} to {l.hoursTo})</span>
+                            ) : (
+                              <span>Full Day</span>
+                            )}
+                          </div>
+                        )}
                         {l.reason && <div className="text-[10px] text-slate-500 font-sans italic mt-0.5">Reason: {l.reason}</div>}
                       </div>
                       <div className="flex items-center gap-2">
@@ -1209,6 +1354,10 @@ export function EmployeeDashboard({
                                 setLvFrom(l.from);
                                 setLvTo(l.to);
                                 setLvReason(l.reason || "");
+                                setLvDurationOption(l.durationOption || "full");
+                                setLvHalfDayType(l.halfDayType || "first");
+                                setLvHoursFrom(l.hoursFrom || "10:00");
+                                setLvHoursTo(l.hoursTo || "14:00");
                                 setEditingLeaveId(l.id);
                               }}
                               title="Edit Leave Request"
@@ -1275,6 +1424,89 @@ export function EmployeeDashboard({
                 />
               </div>
 
+              {/* C-Off Duration Options */}
+              <div className="space-y-2 bg-slate-50 border border-slate-100 p-3 rounded-lg">
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">Credit Duration Options *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: "full", label: "Full Day" },
+                    { key: "half", label: "Half Day" },
+                    { key: "hours", label: "Hours" }
+                  ].map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setCoffDurationOption(opt.key as any)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-md border transition-all uppercase cursor-pointer ${
+                        coffDurationOption === opt.key
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* If Half Day selected */}
+                {coffDurationOption === "half" && (
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase">Select Day Half</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCoffHalfDayType("first")}
+                        className={`px-2 py-1 text-2xs font-semibold rounded-md border cursor-pointer transition-all ${
+                          coffHalfDayType === "first"
+                            ? "bg-indigo-50 border-indigo-300 text-indigo-700"
+                            : "bg-white text-slate-600 border-slate-200"
+                        }`}
+                      >
+                        First Half (10 AM to 2 PM)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCoffHalfDayType("second")}
+                        className={`px-2 py-1 text-2xs font-semibold rounded-md border cursor-pointer transition-all ${
+                          coffHalfDayType === "second"
+                            ? "bg-indigo-50 border-indigo-300 text-indigo-700"
+                            : "bg-white text-slate-600 border-slate-200"
+                        }`}
+                      >
+                        Second Half (2 PM to 6 PM)
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* If Hours selected */}
+                {coffDurationOption === "hours" && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase">Select Hours Range</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block mb-0.5">From Time</span>
+                        <input
+                          type="time"
+                          value={coffHoursFrom}
+                          onChange={(e) => setCoffHoursFrom(e.target.value)}
+                          className="w-full text-xs rounded-lg border border-slate-200 px-3 py-1.5 bg-white focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block mb-0.5">To Time</span>
+                        <input
+                          type="time"
+                          value={coffHoursTo}
+                          onChange={(e) => setCoffHoursTo(e.target.value)}
+                          className="w-full text-xs rounded-lg border border-slate-200 px-3 py-1.5 bg-white focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-sans">Describe details *</label>
                 <textarea
@@ -1303,9 +1535,20 @@ export function EmployeeDashboard({
                   .filter(c => c.empId === user.id)
                   .map((c, idx) => (
                     <div key={idx} className="p-3 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-between">
-                      <div className="space-y-0.5">
+                      <div className="space-y-1">
                         <div className="text-sm font-bold text-slate-800">{c.date}</div>
-                        <div className="text-[11px] text-slate-400 font-mono">{c.reason}</div>
+                        {c.durationOption && (
+                          <div className="text-[10px] text-indigo-600 font-semibold uppercase bg-indigo-50 border border-indigo-100/50 rounded px-1.5 py-0.5 w-fit font-mono">
+                            {c.durationOption === "half" ? (
+                              <span>Half Day ({c.halfDayType === "first" ? "First Half: 10 AM - 2 PM" : "Second Half: 2 PM - 6 PM"})</span>
+                            ) : c.durationOption === "hours" ? (
+                              <span>Hours ({c.hoursFrom} to {c.hoursTo})</span>
+                            ) : (
+                              <span>Full Day</span>
+                            )}
+                          </div>
+                        )}
+                        <div className="text-[11px] text-slate-550 font-sans italic">"{c.reason}"</div>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded bg-indigo-50 border border-indigo-200 text-indigo-700 font-sans">
@@ -1318,6 +1561,10 @@ export function EmployeeDashboard({
                               onClick={() => {
                                 setCoffDate(c.date);
                                 setCoffReason(c.reason || "");
+                                setCoffDurationOption(c.durationOption || "full");
+                                setCoffHalfDayType(c.halfDayType || "first");
+                                setCoffHoursFrom(c.hoursFrom || "10:00");
+                                setCoffHoursTo(c.hoursTo || "14:00");
                                 setEditingCoffId(c.id);
                               }}
                               title="Edit C-Off Claim"
@@ -1708,8 +1955,19 @@ export function EmployeeDashboard({
                                     {rowItem.leave.leaveType}
                                   </span>
                                 </div>
-                                <div className="text-xs text-slate-700">
-                                  📅 Period: <b>{rowItem.leave.from}</b> to <b>{rowItem.leave.to}</b> ({rowItem.leave.days} Day{rowItem.leave.days > 1 ? "s" : ""})
+                                <div className="text-xs text-slate-700 flex flex-col gap-0.5">
+                                  <div>📅 Period: <b>{rowItem.leave.from}</b> to <b>{rowItem.leave.to}</b> ({rowItem.leave.days} Day{rowItem.leave.days > 1 ? "s" : ""})</div>
+                                  {rowItem.leave.durationOption && (
+                                    <div className="text-[10px] text-indigo-700 font-bold uppercase bg-indigo-50 border border-indigo-100/50 rounded px-1.5 py-0.5 w-fit font-mono">
+                                      {rowItem.leave.durationOption === "half" ? (
+                                        <span>Half Day ({rowItem.leave.halfDayType === "first" ? "First Half: 10 AM - 2 PM" : "Second Half: 2 PM - 6 PM"})</span>
+                                      ) : rowItem.leave.durationOption === "hours" ? (
+                                        <span>Hours ({rowItem.leave.hoursFrom} to {rowItem.leave.hoursTo})</span>
+                                      ) : (
+                                        <span>Full Day</span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="text-[11px] text-slate-600 bg-white/70 border border-slate-100 rounded p-1.5 italic">
                                   Reason: "{rowItem.leave.reason}"
@@ -1737,6 +1995,17 @@ export function EmployeeDashboard({
                                     {rowItem.coff.status}
                                   </span>
                                 </div>
+                                {rowItem.coff.durationOption && (
+                                  <div className="text-[10px] text-indigo-700 font-bold uppercase bg-indigo-50 border border-indigo-100/50 rounded px-1.5 py-0.5 w-fit font-mono">
+                                    {rowItem.coff.durationOption === "half" ? (
+                                      <span>Half Day ({rowItem.coff.halfDayType === "first" ? "First Half: 10 AM - 2 PM" : "Second Half: 2 PM - 6 PM"})</span>
+                                    ) : rowItem.coff.durationOption === "hours" ? (
+                                      <span>Hours ({rowItem.coff.hoursFrom} to {rowItem.coff.hoursTo})</span>
+                                    ) : (
+                                      <span>Full Day</span>
+                                    )}
+                                  </div>
+                                )}
                                 <div className="text-[11px] text-slate-600 bg-white/70 border border-slate-100 rounded p-1.5">
                                   <b>Claim grounds:</b> "{rowItem.coff.reason}"
                                 </div>

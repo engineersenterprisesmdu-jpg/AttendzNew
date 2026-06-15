@@ -1820,8 +1820,13 @@ export default function App() {
                           <div key={l.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                             <div className="space-y-1.5 flex-1 min-w-0">
                               <div className="font-bold text-sm text-slate-900">{getEmpName(l.empId)}</div>
-                              <p className="text-xs text-slate-500">
-                                Leave Scope: <b>{l.leaveType}</b> | Period: <b>{l.from} to {l.to}</b> ({l.days} days)
+                              <p className="text-xs text-slate-500 flex flex-wrap gap-x-2 items-center">
+                                <span>Leave Scope: <b>{l.leaveType}</b></span> | <span>Period: <b>{l.from} to {l.to}</b> ({l.days} day{l.days !== 1 ? "s" : ""})</span>
+                                {l.durationOption && (
+                                  <span className="text-[10px] text-indigo-600 font-extrabold uppercase bg-indigo-50 border border-indigo-100/50 rounded px-1.5 py-0.5">
+                                    {l.durationOption === "half" ? `Half Day: ${l.halfDayType === "first" ? "First Half (10 - 2)" : "Second Half (2 - 6)"}` : l.durationOption === "hours" ? `Specific Hours: ${l.hoursFrom} - ${l.hoursTo}` : "Full Day"}
+                                  </span>
+                                )}
                               </p>
                               <p className="text-xs text-slate-600">Reasoning context: "{l.reason}"</p>
                             </div>
@@ -1869,8 +1874,13 @@ export default function App() {
                           <div key={c.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                             <div className="space-y-1.5 flex-1 min-w-0">
                               <div className="font-bold text-sm text-slate-900">{getEmpName(c.empId)}</div>
-                              <p className="text-xs text-slate-500">
-                                Requested C-Off Date: <b>{c.date}</b>
+                              <p className="text-xs text-slate-500 flex flex-wrap gap-x-2 items-center">
+                                <span>Requested C-Off Date: <b>{c.date}</b></span>
+                                {c.durationOption && (
+                                  <span className="text-[10px] text-indigo-600 font-extrabold uppercase bg-indigo-50 border border-indigo-100/50 rounded px-1.5 py-0.5">
+                                    {c.durationOption === "half" ? `Half Day: ${c.halfDayType === "first" ? "First Half (10 - 2)" : "Second Half (2 - 6)"}` : c.durationOption === "hours" ? `Specific Hours: ${c.hoursFrom} - ${c.hoursTo}` : "Full Day"}
+                                  </span>
+                                )}
                               </p>
                               <p className="text-xs text-slate-600">Work Reason / Claim Grounds: "{c.reason}"</p>
                             </div>

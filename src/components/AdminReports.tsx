@@ -188,7 +188,11 @@ export function AdminReports({
           type: "Leave App.",
           empName: getEmpName(l.empId),
           empId: employees.find(x => x.id === l.empId)?.empId || "—",
-          details: `${l.leaveType} (${l.days} days) - ${l.reason}`,
+          details: `${l.leaveType} (${l.days} day${l.days !== 1 ? "s" : ""})${
+            l.durationOption === "half" ? ` [Half Day: ${l.halfDayType === "first" ? "First Half (10-2)" : "Second Half (2-6)"}]`
+            : l.durationOption === "hours" ? ` [Hours: ${l.hoursFrom} - ${l.hoursTo}]`
+            : ""
+          } - ${l.reason}`,
           timeLog: `Period: ${fmtDate(l.from)} to ${fmtDate(l.to)}`,
           durationMinutes: 0,
           status: l.status,
@@ -206,7 +210,11 @@ export function AdminReports({
           type: "C-Off Request",
           empName: getEmpName(c.empId),
           empId: employees.find(x => x.id === c.empId)?.empId || "—",
-          details: `Reason: ${c.reason}`,
+          details: `${
+            c.durationOption === "half" ? `[Half Day: ${c.halfDayType === "first" ? "First Half (10-2)" : "Second Half (2-6)"}] `
+            : c.durationOption === "hours" ? `[Hours: ${c.hoursFrom} - ${c.hoursTo}] `
+            : "[Full Day] "
+          }Reason: ${c.reason}`,
           timeLog: `Date: ${fmtDate(c.date)}`,
           durationMinutes: 0,
           status: c.status,

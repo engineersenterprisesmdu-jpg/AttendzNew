@@ -76,6 +76,10 @@ export interface Leave {
   status: "Pending" | "Approved" | "Rejected" | "Rejected-Resubmit";
   rejectReason?: string;
   approvedBy?: string;
+  durationOption?: "full" | "half" | "hours";
+  halfDayType?: "first" | "second";
+  hoursFrom?: string;
+  hoursTo?: string;
 }
 
 export interface Coff {
@@ -86,6 +90,10 @@ export interface Coff {
   status: "Pending" | "Approved" | "Rejected" | "Rejected-Resubmit";
   rejectReason?: string;
   approvedBy?: string;
+  durationOption?: "full" | "half" | "hours";
+  halfDayType?: "first" | "second";
+  hoursFrom?: string;
+  hoursTo?: string;
 }
 
 export interface SpecialDuty {
