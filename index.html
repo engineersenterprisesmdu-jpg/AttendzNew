@@ -13,10 +13,29 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="AttendX" />
     <link rel="apple-touch-icon" href="/app-icon.svg" />
+
+    <!-- Anti-404 Cache Recovery for Outdated PWA Build Chunks -->
+    <script>
+      window.addEventListener('error', function(e) {
+        var target = e.target;
+        if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK')) {
+          var src = target.src || target.href;
+          console.warn('[AttendX PWA] Failed to load asset: ' + src + '. Attempting cache-busting reload...');
+          
+          var lastReload = sessionStorage.getItem('pwa_auto_reload');
+          var now = Date.now();
+          // Force a single clean reload, but avoid infinite loops if genuine offline
+          if (!lastReload || (now - parseInt(lastReload, 10)) > 10000) {
+            sessionStorage.setItem('pwa_auto_reload', now);
+            window.location.reload();
+          }
+        }
+      }, true);
+    </script>
   </head>
   <body class="overflow-x-hidden antialiased">
     <div id="root"></div>
-    <script type="module" src="./src/main.tsx"></script>
+    <script type="module" src="/src/main.tsx"></script>
     
     <!-- Register Service Worker for PWA / Mobile Installation -->
     <script>
