@@ -1,15 +1,28 @@
-const CACHE_NAME = 'attendx-pwa-cache-v5';
+const CACHE_NAME = 'attendx-pwa-cache-v6';
+
+// Dynamically compute the application's base directory pathway from the service worker's registration scope
+const SCOPE_PATH = (function() {
+  try {
+    const scopeUrl = new URL(self.registration.scope);
+    const pathname = scopeUrl.pathname;
+    return pathname.endsWith('/') ? pathname : pathname + '/';
+  } catch (e) {
+    return '/';
+  }
+})();
+
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/app-icon.svg'
+  SCOPE_PATH,
+  SCOPE_PATH + 'index.html',
+  SCOPE_PATH + 'manifest.json',
+  SCOPE_PATH + 'app-icon.svg'
 ];
 
-// Install Event - Pre-cache shell assets
+// Install Event - Pre-cache shell assets dynamically
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
+      console.log('[PWA SW] Pre-caching based on dynamic scope base:', SCOPE_PATH);
       return cache.addAll(ASSETS_TO_CACHE).catch(err => {
         console.warn('[PWA SW] Pre-caching asset failure:', err);
       });
@@ -68,9 +81,9 @@ self.addEventListener('fetch', (event) => {
           if (cachedResponse) {
             return cachedResponse;
           }
-          // If it's a page navigation request, return cached root/index
+          // If it's a page navigation request, return cached root/index dynamically
           if (event.request.mode === 'navigate') {
-            return caches.match('/') || caches.match('/index.html');
+            return caches.match(SCOPE_PATH) || caches.match(SCOPE_PATH + 'index.html');
           }
           // Propagate error to browser if asset is missing and uncached, preventing SW crash state
           throw err;
