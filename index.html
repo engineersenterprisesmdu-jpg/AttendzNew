@@ -14,6 +14,40 @@
     <meta name="apple-mobile-web-app-title" content="AttendX" />
     <link rel="apple-touch-icon" href="/app-icon.svg" />
 
+    <!-- Anti-Cache Poisoning & Fresh PWA Recovery Upgrade -->
+    <script>
+      (function() {
+        var PWA_VERSION = 'attendx_v5_fresh';
+        if (localStorage.getItem('pwa_version') !== PWA_VERSION) {
+          console.warn('[AttendX PWA] Upgrading/Resetting PWA caches...');
+          // Force unregister all service workers
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for (var i = 0; i < registrations.length; i++) {
+                registrations[i].unregister();
+              }
+            });
+          }
+          // Clear all cached storage
+          if ('caches' in window) {
+            caches.keys().then(function(keys) {
+              Promise.all(keys.map(function(key) {
+                return caches.delete(key);
+              })).then(function() {
+                localStorage.setItem('pwa_version', PWA_VERSION);
+                console.warn('[AttendX PWA] Base caches cleared. Performing clean reload...');
+                window.location.reload();
+              }).catch(function() {
+                localStorage.setItem('pwa_version', PWA_VERSION);
+              });
+            });
+          } else {
+            localStorage.setItem('pwa_version', PWA_VERSION);
+          }
+        }
+      })();
+    </script>
+
     <!-- Anti-404 Cache Recovery for Outdated PWA Build Chunks -->
     <script>
       window.addEventListener('error', function(e) {
@@ -24,7 +58,6 @@
           
           var lastReload = sessionStorage.getItem('pwa_auto_reload');
           var now = Date.now();
-          // Force a single clean reload, but avoid infinite loops if genuine offline
           if (!lastReload || (now - parseInt(lastReload, 10)) > 10000) {
             sessionStorage.setItem('pwa_auto_reload', now);
             window.location.reload();
