@@ -1,9 +1,9 @@
-const CACHE_NAME = 'attendx-pwa-cache-v2';
+const CACHE_NAME = 'attendx-pwa-cache-v3';
 const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './manifest.json',
-  './app-icon.svg'
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/app-icon.svg'
 ];
 
 // Install Event - Pre-cache shell assets
@@ -33,7 +33,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event - Network-First Strategy
+// Fetch Event - Network-First Strategy with Cache Fallback
 self.addEventListener('fetch', (event) => {
   // Only handle GET requests
   if (event.request.method !== 'GET') return;
@@ -41,14 +41,15 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // If response is valid, clone and cache it for offline fallback if it is in our assets or a navigation request
+        // If response is valid, clone and cache it for offline fallback
         if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             const urlObj = new URL(event.request.url);
             if (
               event.request.mode === 'navigate' ||
-              ASSETS_TO_CACHE.some(asset => urlObj.pathname.endsWith(asset.replace('./', '')))
+              urlObj.pathname.includes('/assets/') ||
+              ASSETS_TO_CACHE.includes(urlObj.pathname)
             ) {
               cache.put(event.request, responseToCache);
             }
@@ -65,7 +66,7 @@ self.addEventListener('fetch', (event) => {
           }
           // If it's a page navigation, return the cached index.html template
           if (event.request.mode === 'navigate') {
-            return caches.match('./') || caches.match('./index.html') || caches.match('index.html');
+            return caches.match('/') || caches.match('/index.html');
           }
         });
       })
